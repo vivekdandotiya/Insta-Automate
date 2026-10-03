@@ -12,7 +12,6 @@ jobs:
     name: Run Instagram Monitoring Cycle
     
     # Environment variables available across ALL steps in the job
-    # Defaults for optional variables (INSTAGRAM_ADAPTER_MODE=apify, APIFY_ACTOR_ID=apify~instagram-scraper) are applied dynamically in Node config
     env:
       POLL_INTERVAL_HOURS: '2'
       INSTAGRAM_ADAPTER_MODE: ${{ secrets.INSTAGRAM_ADAPTER_MODE }}
@@ -27,6 +26,24 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
+      - name: Verify production checkout
+        run: |
+          echo "====================================================="
+          echo "           GITHUB ACTIONS WORKFLOW CHECKOUT          "
+          echo "====================================================="
+          echo "Git commit SHA:"
+          git rev-parse HEAD
+
+          echo "Git branch:"
+          git branch --show-current || true
+
+          echo "Prisma schema header:"
+          sed -n '1,10p' prisma/schema.prisma
+
+          echo "Prisma provider:"
+          grep -n 'provider' prisma/schema.prisma
+          echo "====================================================="
+
       - name: Setup Node.js 20 Environment
         uses: actions/setup-node@v4
         with:
@@ -36,8 +53,57 @@ jobs:
       - name: Install Project Dependencies
         run: npm ci
 
+      - name: Production Preflight Check
+        run: |
+          echo "====================================================="
+          echo "            PRODUCTION PREFLIGHT CHECK               "
+          echo "====================================================="
+          
+          if [ -z "$DATABASE_URL" ]; then
+            echo "ERROR: DATABASE_URL GitHub secret is missing!"
+            exit 1
+          fi
+
+          case "$DATABASE_URL" in
+            postgresql://*|postgres://*)
+              echo "[OK] DATABASE_URL protocol is valid PostgreSQL."
+              ;;
+            *)
+              echo "ERROR: DATABASE_URL must be a PostgreSQL URL (starting with postgresql:// or postgres://)."
+              exit 1
+              ;;
+          esac
+
+          if grep -q 'provider = "postgresql"' prisma/schema.prisma; then
+            echo "[OK] Prisma datasource provider is verified as postgresql."
+          else
+            echo "ERROR: Production Prisma schema is not configured for postgresql!"
+            exit 1
+          fi
+          
+          if [ -z "$APIFY_API_TOKEN" ]; then
+            echo "ERROR: APIFY_API_TOKEN GitHub secret is missing!"
+            exit 1
+          else
+            echo "[OK] APIFY_API_TOKEN secret is present."
+          fi
+
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "ERROR: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID GitHub secret is missing!"
+            exit 1
+          else
+            echo "[OK] Telegram bot credentials are present."
+          fi
+          echo "====================================================="
+
+      - name: Validate Prisma Schema
+        run: npx prisma validate --schema=prisma/schema.prisma
+
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema=prisma/schema.prisma
+
       - name: Synchronize Database Schema
-        run: npx prisma db push
+        run: npx prisma db push --schema=prisma/schema.prisma
 
       - name: Compile Backend TypeScript
         run: npm run build:backend
