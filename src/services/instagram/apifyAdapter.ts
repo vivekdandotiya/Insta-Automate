@@ -5,11 +5,13 @@ import { config } from '../../config/index.js';
 
 export class ApifyInstagramAdapter implements InstagramAdapter {
   private get apiToken(): string {
-    return (config.apifyApiToken || process.env.APIFY_API_TOKEN || '').trim();
+    const token = config.apifyApiToken || process.env.APIFY_API_TOKEN || '';
+    return token.trim();
   }
 
   private get actorId(): string {
-    return (config.apifyActorId || process.env.APIFY_ACTOR_ID || 'apify~instagram-scraper').trim();
+    const actor = config.apifyActorId || process.env.APIFY_ACTOR_ID || 'apify~instagram-scraper';
+    return actor.trim() === '' ? 'apify~instagram-scraper' : actor.trim();
   }
 
   public async fetchLatestPosts(sourceAccount: string): Promise<RawInstagramPost[]> {
