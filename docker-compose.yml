@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  agent-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: instagram_job_alert_agent
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/prod.db
+      - CHECK_INTERVAL_SECONDS=300
+      - TIMEZONE=Asia/Kolkata
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
+      - AI_MODEL=${AI_MODEL:-gpt-4o-mini}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - OCR_ENABLED=${OCR_ENABLED:-true}
+      - INSTAGRAM_ADAPTER_MODE=${INSTAGRAM_ADAPTER_MODE:-mock}
+    volumes:
+      - sqlite_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  sqlite_data:

@@ -1,0 +1,47 @@
+name: Scheduled Instagram Job Alert Worker
+
+on:
+  schedule:
+    # Trigger execution every 2 hours (00:00, 02:00, 04:00 ... UTC)
+    - cron: '0 */2 * * *'
+  workflow_dispatch: # Allows manual "Run Workflow" trigger from GitHub Actions UI
+
+jobs:
+  run-job-monitor:
+    runs-on: ubuntu-latest
+    name: Run Instagram Monitoring Cycle
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20 Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Project Dependencies
+        run: npm ci
+
+      - name: Synchronize Database Schema
+        run: npx prisma db push
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'file:./dev.db' }}
+
+      - name: Compile Backend TypeScript
+        run: npm run build:backend
+
+      - name: Execute Scheduled Check Cycle
+        run: npm run run-cycle
+        env:
+          POLL_INTERVAL_HOURS: 2
+          INSTAGRAM_ADAPTER_MODE: ${{ secrets.INSTAGRAM_ADAPTER_MODE || 'apify' }}
+          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
+          APIFY_ACTOR_ID: ${{ secrets.APIFY_ACTOR_ID || 'apify~instagram-scraper' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          AI_PROVIDER: ${{ secrets.AI_PROVIDER || 'openai' }}
+          AI_MODEL: ${{ secrets.AI_MODEL || 'gpt-4o-mini' }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'file:./dev.db' }}

@@ -1,0 +1,86 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model AgentState {
+  id                   Int       @id @default(1)
+  agent_start_time     DateTime
+  last_successful_check DateTime?
+  status               String    @default("RUNNING")
+  last_error           String?
+  updated_at           DateTime  @updatedAt
+}
+
+model InstagramSource {
+  id              String    @id @default(uuid())
+  username        String    @unique
+  profile_url     String
+  priority        String    @default("NORMAL")
+  enabled         Boolean   @default(true)
+  created_at      DateTime  @default(now())
+  last_checked_at DateTime?
+}
+
+model ProcessedPost {
+  id                String    @id @default(uuid())
+  instagram_post_id String    @unique
+  source_account    String
+  post_url          String
+  post_type         String    @default("POST")
+  published_at      DateTime
+  detected_at       DateTime  @default(now())
+  processed_at      DateTime?
+  classification    String    @default("NOT_JOB_POST")
+  relevance_score   String    @default("IRRELEVANT")
+  confidence        Float     @default(0.0)
+  content_hash      String
+  processing_status String    @default("PROCESSED")
+  error_message     String?
+  job_alert         JobAlert?
+}
+
+model JobAlert {
+  id                  String        @id @default(uuid())
+  processed_post_id   String        @unique
+  processed_post      ProcessedPost @relation(fields: [processed_post_id], references: [id], onDelete: Cascade)
+  company             String        @default("Not specified")
+  role                String        @default("Not specified")
+  location            String        @default("Not specified")
+  experience          String        @default("Not specified")
+  salary              String        @default("Not specified")
+  employment_type     String        @default("Not specified")
+  work_mode           String        @default("Not specified")
+  skills              String        @default("Not specified")
+  education           String        @default("Not specified")
+  deadline            String        @default("Not specified")
+  application_method  String        @default("Not specified")
+  application_link    String        @default("Not specified")
+  contact_information String        @default("Not specified")
+  reason              String?
+  notification_sent   Boolean       @default(false)
+  notification_sent_at DateTime?
+  created_at          DateTime      @default(now())
+}
+
+model UserPreference {
+  id                Int      @id @default(1)
+  roles             String   @default("[\"Software Developer\",\"Software Engineer\",\"Full Stack Developer\",\"Frontend Developer\",\"Backend Developer\",\"React Developer\",\"Node.js Developer\",\"SDE\",\"SDE Intern\",\"Software Development Intern\",\"BDE\",\"Customer Support\",\"QA\",\"Software Tester\"]")
+  locations         String   @default("[\"Delhi\",\"New Delhi\",\"Delhi NCR\",\"Gurugram\",\"Gurgaon\",\"Noida\",\"Greater Noida\",\"Remote\"]")
+  experience_levels String   @default("[\"Fresher\",\"Freshers\",\"Graduate\",\"0-2 years\",\"Entry Level\",\"Internship\"]")
+  min_relevance     String   @default("MEDIUM")
+  notification_mode String   @default("IMMEDIATE")
+  updated_at        DateTime @updatedAt
+}
+
+model SystemLog {
+  id        String   @id @default(uuid())
+  level     String   @default("INFO")
+  message   String
+  meta      String?
+  timestamp DateTime @default(now())
+}
