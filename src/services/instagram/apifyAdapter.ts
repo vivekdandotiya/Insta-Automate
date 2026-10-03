@@ -1,20 +1,22 @@
 import axios from 'axios';
 import { InstagramAdapter, RawInstagramPost } from './adapter.interface.js';
 import { logger } from '../../utils/logger.js';
+import { config } from '../../config/index.js';
 
 export class ApifyInstagramAdapter implements InstagramAdapter {
-  private apiToken: string;
-  private actorId: string;
+  private get apiToken(): string {
+    return (config.apifyApiToken || process.env.APIFY_API_TOKEN || '').trim();
+  }
 
-  constructor() {
-    this.apiToken = process.env.APIFY_API_TOKEN || '';
-    this.actorId = process.env.APIFY_ACTOR_ID || 'apify~instagram-scraper';
+  private get actorId(): string {
+    return (config.apifyActorId || process.env.APIFY_ACTOR_ID || 'apify~instagram-scraper').trim();
   }
 
   public async fetchLatestPosts(sourceAccount: string): Promise<RawInstagramPost[]> {
-    const cleanUsername = sourceAccount.replace('@', '').trim();
+    const cleanUsername = sourceAccount.replace('@', '').replace(/\//g, '').trim();
 
-    if (!this.apiToken) {
+    const token = this.apiToken;
+    if (!token) {
       const errorMsg = 'CONFIGURATION REQUIRED: APIFY_API_TOKEN environment variable is not configured. Obtain an API token from https://console.apify.com/account/integrations';
       logger.error(`[APIFY ADAPTER] ${errorMsg}`);
       throw new Error(errorMsg);
@@ -25,11 +27,12 @@ export class ApifyInstagramAdapter implements InstagramAdapter {
     const maxRetries = 2;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const url = `https://api.apify.com/v2/acts/${this.actorId}/run-sync-get-dataset-items?token=${this.apiToken}`;
+        const url = `https://api.apify.com/v2/acts/${this.actorId}/run-sync-get-dataset-items?token=${token}`;
         
         const response = await axios.post(
           url,
           {
+            usernames: [cleanUsername],
             directUrls: [`https://www.instagram.com/${cleanUsername}/`],
             resultsType: 'posts',
             resultsLimit: 10,
@@ -47,24 +50,34 @@ export class ApifyInstagramAdapter implements InstagramAdapter {
           return [];
         }
 
-        logger.info(`[APIFY ADAPTER] Successfully retrieved ${response.data.length} posts for @${cleanUsername}`);
+        logger.info(`[APIFY ADAPTER] Successfully retrieved ${response.data.length} items from Apify for @${cleanUsername}`);
 
         return response.data.map((item: any, index: number) => {
-          const postId = String(item.id || item.shortCode || `apify_${cleanUsername}_${index}`);
-          const postUrl = item.url || item.postUrl || `https://www.instagram.com/p/${item.shortCode || postId}/`;
+          const postId = String(item.id || item.shortCode || item.id_ || `apify_${cleanUsername}_${index}`);
+          const postUrl = item.url || item.postUrl || item.canonicalUrl || (item.shortCode ? `https://www.instagram.com/p/${item.shortCode}/` : `https://www.instagram.com/p/${postId}/`);
           
-          const typeStr = String(item.type || '').toLowerCase();
-          const isReel = item.isReel === true || typeStr.includes('video') || typeStr.includes('reel');
+          const typeStr = String(item.type || item.productType || '').toLowerCase();
+          const isReel = item.isReel === true || typeStr.includes('video') || typeStr.includes('reel') || typeStr.includes('clip');
           const postType: 'POST' | 'REEL' = isReel ? 'REEL' : 'POST';
 
-          const caption = typeof item.caption === 'string' ? item.caption : (item.caption?.text || '');
-          const mediaUrl = item.displayUrl || item.imageUrl || (Array.isArray(item.images) && item.images[0]) || '';
+          let caption = '';
+          if (typeof item.caption === 'string') {
+            caption = item.caption;
+          } else if (item.caption && typeof item.caption.text === 'string') {
+            caption = item.caption.text;
+          } else if (typeof item.text === 'string') {
+            caption = item.text;
+          }
+
+          let mediaUrl = item.displayUrl || item.imageUrl || item.thumbnailUrl || (Array.isArray(item.images) && item.images[0]) || '';
           
           let publishedAt = new Date();
           if (item.timestamp) {
             publishedAt = new Date(item.timestamp);
           } else if (item.takenAt) {
             publishedAt = new Date(item.takenAt);
+          } else if (item.takenAtTimestamp) {
+            publishedAt = new Date(item.takenAtTimestamp * 1000);
           }
 
           return {
@@ -80,10 +93,10 @@ export class ApifyInstagramAdapter implements InstagramAdapter {
         });
       } catch (error: any) {
         const status = error.response?.status;
-        const msg = error.response?.data?.error?.message || error.message;
+        const msg = error.response?.data?.error?.message || error.response?.data?.message || error.message;
         
         if (status === 401 || status === 403) {
-          throw new Error(`Apify Authentication Failed (HTTP ${status}): Check your APIFY_API_TOKEN.`);
+          throw new Error(`Apify Authentication Failed (HTTP ${status}): Check your APIFY_API_TOKEN secret.`);
         }
         if (status === 429) {
           logger.warn(`[APIFY ADAPTER] Rate limit encountered (429). Attempt ${attempt} of ${maxRetries}...`);
