@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: insta-automate-api
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm install && npm run build:backend && npx prisma generate --schema=prisma/schema.prisma
+    startCommand: node dist/src/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TIMEZONE
+        value: Asia/Kolkata
+      - key: INSTAGRAM_ADAPTER_MODE
+        value: apify
+      - key: APIFY_ACTOR_ID
+        value: apify~instagram-scraper
+      - key: EMAIL_TO
+        value: vivekdandotiya772@gmail.com
+      - key: DATABASE_URL
+        sync: false
+      - key: APIFY_API_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false

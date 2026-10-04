@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { 
   Play, Pause, RefreshCw, AlertTriangle, Instagram, 
   Send, Filter, Activity, Terminal, ShieldAlert, 
   ExternalLink, Calendar, Search, MapPin, Briefcase, 
   Building, CheckCircle2, ChevronLeft, ChevronRight, Zap, ArrowUpDown, Clock, Layers
 } from 'lucide-react';
+import { api } from './api';
 import { JobDetailModal } from './components/JobDetailModal';
 
 export default function App() {
@@ -63,12 +63,12 @@ export default function App() {
       };
 
       const [jobsRes, statsRes, historyRes, sourcesRes, filtersRes, logsRes] = await Promise.all([
-        axios.get('/api/jobs', { params }),
-        axios.get('/api/jobs/stats'),
-        axios.get('/api/jobs/history'),
-        axios.get('/api/sources'),
-        axios.get('/api/filters'),
-        axios.get('/api/logs')
+        api.get('/api/jobs', { params }),
+        api.get('/api/jobs/stats'),
+        api.get('/api/jobs/history'),
+        api.get('/api/sources'),
+        api.get('/api/filters'),
+        api.get('/api/logs')
       ]);
 
       if (jobsRes.data.success) {
@@ -107,7 +107,7 @@ export default function App() {
     if (isScanning) return;
     setIsScanning(true);
     try {
-      await axios.post('/api/jobs/scan');
+      await api.post('/api/jobs/scan');
       await fetchJobsData();
     } catch (e: any) {
       alert(e.response?.data?.error || 'Failed to trigger scan cycle');
