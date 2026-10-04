@@ -3,13 +3,14 @@ import { isPostAfterStartTime } from '../src/utils/date.js';
 import { RuleClassifier } from '../src/services/ruleClassifier.js';
 import { FilterService } from '../src/services/filter.service.js';
 import { TelegramService } from '../src/services/telegram.service.js';
+import { EmailNotificationService } from '../src/services/email.service.js';
 import { getMonitoredInstagramAccounts, DEFAULT_MONITORED_ACCOUNTS } from '../src/config/sources.config.js';
 
 describe('Comprehensive Production Audit & Test Suite (Requirement 18)', () => {
   const agentStartTime = new Date('2026-10-03T13:30:00.000Z');
 
   // --- MONITORED INSTAGRAM SOURCES AUDIT ---
-  it('Requirement: Monitored source list contains exactly 65 target accounts', () => {
+  it('Requirement: Monitored source list contains target accounts', () => {
     const accounts = getMonitoredInstagramAccounts();
     expect(accounts.length).toBe(65);
     expect(DEFAULT_MONITORED_ACCOUNTS.length).toBe(65);
@@ -53,6 +54,43 @@ describe('Comprehensive Production Audit & Test Suite (Requirement 18)', () => {
 
     // When bot token or chat ID are missing, sendAlert returns false safely
     expect(typeof sent).toBe('boolean');
+  });
+
+  // --- EMAIL SERVICE VALIDATION ---
+  it('Requirement: EmailNotificationService handles subject formatting, HTML generation, and missing API keys cleanly', async () => {
+    const payload = {
+      company: 'ABC Tech',
+      role: 'Full Stack Developer',
+      location: 'Delhi NCR',
+      experience: '0-2 Years',
+      salary: '8 LPA',
+      workMode: 'Remote',
+      employmentType: 'Full Time',
+      publishedAt: new Date('2026-10-04T08:00:00.000Z'),
+      detectedAt: new Date('2026-10-04T08:05:00.000Z'),
+      relevanceScore: 'HIGH',
+      sourceAccount: '@test_account',
+      postUrl: 'https://www.instagram.com/p/C_TEST/',
+      applicationLink: 'https://abctech.careers'
+    };
+
+    const subject = EmailNotificationService.buildSubject(payload);
+    expect(subject).toBe('🚨 New Job Alert: Full Stack Developer | Delhi NCR');
+
+    const html = EmailNotificationService.buildHtmlBody(payload);
+    expect(html).toContain('NEW JOB ALERT');
+    expect(html).toContain('Full Stack Developer');
+    expect(html).toContain('ABC Tech');
+    expect(html).toContain('https://abctech.careers');
+
+    // When RESEND_API_KEY is missing, sendAlert logs warning and returns false without throwing
+    const origKey = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+
+    const sent = await EmailNotificationService.sendAlert(payload);
+    expect(sent).toBe(false);
+
+    if (origKey) process.env.RESEND_API_KEY = origKey;
   });
 
   // --- 5, 6, 7. AGENT_START_TIME PERSISTENCE ---

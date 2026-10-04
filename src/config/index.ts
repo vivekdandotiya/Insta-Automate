@@ -24,6 +24,11 @@ export const config = {
   // Telegram Bot Secrets (REQUIRED IN PRODUCTION)
   telegramBotToken: getEnvString('TELEGRAM_BOT_TOKEN', ''),
   telegramChatId: getEnvString('TELEGRAM_CHAT_ID', ''),
+
+  // Email Alert Configuration (Resend)
+  emailTo: getEnvString('EMAIL_TO', 'vivekdandotiya772@gmail.com'),
+  resendApiKey: getEnvString('RESEND_API_KEY', ''),
+  emailFrom: getEnvString('EMAIL_FROM', 'Instagram Job Alert <onboarding@resend.dev>'),
   
   // AI Classifier Configuration (OPTIONAL)
   aiProvider: getEnvString('AI_PROVIDER', 'openai'),

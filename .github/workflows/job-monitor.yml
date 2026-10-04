@@ -19,6 +19,8 @@ jobs:
       APIFY_ACTOR_ID: ${{ secrets.APIFY_ACTOR_ID }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      EMAIL_TO: vivekdandotiya772@gmail.com
       AI_API_KEY: ${{ secrets.AI_API_KEY }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
@@ -93,6 +95,12 @@ jobs:
             exit 1
           else
             echo "[OK] Telegram bot credentials are present."
+          fi
+
+          if [ -z "$RESEND_API_KEY" ]; then
+            echo "[NOTICE] RESEND_API_KEY secret is not yet set. Email alerts will log warning until secret is added."
+          else
+            echo "[OK] RESEND_API_KEY secret is present."
           fi
           echo "====================================================="
 

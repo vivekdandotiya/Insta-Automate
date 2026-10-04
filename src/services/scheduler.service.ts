@@ -9,6 +9,7 @@ import { getInstagramAdapter } from './instagram/factory.js';
 import { ClassifierService } from './classifier.service.js';
 import { FilterService } from './filter.service.js';
 import { TelegramService } from './telegram.service.js';
+import { EmailNotificationService } from './email.service.js';
 import { RawInstagramPost } from './instagram/adapter.interface.js';
 
 export class SchedulerService {
@@ -160,8 +161,7 @@ export class SchedulerService {
         const filterEvaluation = await FilterService.isMatch(jobResult);
 
         if (jobResult.isJobPost && filterEvaluation.matches) {
-          // 7. Send Telegram Alert
-          const sentSuccess = await TelegramService.sendAlert({
+          const notificationPayload = {
             company: jobResult.company,
             role: jobResult.role,
             location: jobResult.location,
@@ -175,11 +175,27 @@ export class SchedulerService {
             sourceAccount: post.sourceAccount,
             postUrl: post.postUrl,
             applicationLink: jobResult.applicationLink
-          });
+          };
 
-          if (sentSuccess) notified++;
+          // 7a. Send Telegram Alert
+          let telegramSent = false;
+          try {
+            telegramSent = await TelegramService.sendAlert(notificationPayload);
+          } catch (tgErr: any) {
+            logger.error(`[SCHEDULED WORKER] Telegram alert failed for ${post.id}: ${tgErr.message}`);
+          }
 
-          // Create JobAlert record
+          // 7b. Send Email Alert (Independent execution channel)
+          let emailSent = false;
+          try {
+            emailSent = await EmailNotificationService.sendAlert(notificationPayload);
+          } catch (emailErr: any) {
+            logger.error(`[SCHEDULED WORKER] Email alert failed for ${post.id}: ${emailErr.message}`);
+          }
+
+          if (telegramSent || emailSent) notified++;
+
+          // Create JobAlert record with independent status flags
           await prisma.jobAlert.create({
             data: {
               processed_post_id: processedRecord.id,
@@ -197,8 +213,10 @@ export class SchedulerService {
               application_link: jobResult.applicationLink,
               contact_information: jobResult.contactInformation,
               reason: filterEvaluation.reason,
-              notification_sent: sentSuccess,
-              notification_sent_at: sentSuccess ? new Date() : null
+              notification_sent: telegramSent,
+              notification_sent_at: telegramSent ? new Date() : null,
+              email_sent: emailSent,
+              email_sent_at: emailSent ? new Date() : null
             }
           });
         }

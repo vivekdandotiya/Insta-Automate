@@ -64,6 +64,8 @@ model JobAlert {
   reason              String?
   notification_sent   Boolean       @default(false)
   notification_sent_at DateTime?
+  email_sent          Boolean       @default(false)
+  email_sent_at       DateTime?
   created_at          DateTime      @default(now())
 }
 
