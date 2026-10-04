@@ -1,54 +1,94 @@
-# 🚀 Instagram Job Alert Agent
+# 🚀 Instagram Job Alert Dashboard (Insta-Automate)
 
-An autonomous, production-ready AI Agent that continuously monitors Instagram accounts/sources for job postings, walk-in interviews, hiring alerts, and vacancies published after a persisted `AGENT_START_TIME`. 
+An autonomous, web-based **Instagram Job Alert Dashboard** that continuously monitors 69 public Instagram accounts for job postings, walk-in interviews, hiring alerts, internships, and vacancies published after a persisted `AGENT_START_TIME`.
 
-It classifies jobs using AI (or high-precision rule fallback), extracts structured job fields (role, company, location, experience, salary, application link), normalizes location variations (e.g. Gurgaon <-> Gurugram, Delhi NCR), prevents duplicates, and sends instant HTML-formatted alerts to Telegram.
-
----
-
-## 🌟 Supported Instagram Data Providers
-
-1. **Apify Instagram Scraper API (`INSTAGRAM_ADAPTER_MODE=apify`) [RECOMMENDED]**:
-   - Official Docs: [https://apify.com/apify/instagram-scraper](https://apify.com/apify/instagram-scraper)
-   - Supports arbitrary public Instagram accounts and Reels.
-   - Requires `APIFY_API_TOKEN` in `.env`.
-
-2. **RapidAPI Instagram Data API (`INSTAGRAM_ADAPTER_MODE=rapidapi`)**:
-   - RapidAPI endpoints for fetching profile posts.
-   - Requires `RAPIDAPI_KEY` and `RAPIDAPI_HOST` in `.env`.
-
-3. **Meta Graph API (`INSTAGRAM_ADAPTER_MODE=graph_api`)**:
-   - Official Meta Graph API for Instagram Business/Creator accounts.
-   - Requires `INSTAGRAM_GRAPH_API_TOKEN` in `.env`.
-
-4. **Custom Scraper Gateway (`INSTAGRAM_ADAPTER_MODE=scraper`)**:
-   - Any self-hosted HTTP scraper gateway following [`INSTAGRAM_ADAPTER_CONTRACT.md`](file:///c:/Users/HP/OneDrive/Desktop/Agent1/INSTAGRAM_ADAPTER_CONTRACT.md).
-
-5. **Local Mock Engine (`INSTAGRAM_ADAPTER_MODE=mock`)**:
-   - Built-in test dataset for zero-token local development.
+It classifies jobs using high-precision rule and AI classifiers, extracts structured job fields (role, company, location, experience, salary, work mode, employment type, application link), normalizes location variations (e.g. Gurgaon <-> Gurugram, Delhi NCR, Ghaziabad, Faridabad), prevents duplicates using canonical Instagram post IDs, and displays day-wise job feeds on a modern web dashboard.
 
 ---
 
-## 🚀 Quick Start
+## 🌟 Key Features
 
-### 1. Install Dependencies
+- **Web Dashboard as Primary Destination**: All qualifying job posts are stored in PostgreSQL / Supabase and presented on the web dashboard organized by day (`Asia/Kolkata` IST timezone).
+- **69 Monitored Instagram Accounts**: Monitors public Instagram profiles every 2 hours via Apify Instagram Scraper (`apify~instagram-scraper`).
+- **Atomic Duplicate Protection**: Guarantees zero duplicate job records using a database `UNIQUE` constraint on `instagram_post_id`.
+- **Persistent `AGENT_START_TIME`**: Ignore pre-start posts automatically without ever resetting the monitoring cutoff timestamp.
+- **Day-Wise History Navigation**: View Today's jobs or navigate historical days via date pickers and history logs without destroying historical database data.
+- **Global Search & Multi-Filter Controls**: Search by role, company, location, caption, or username; filter by relevance (`HIGH`, `MEDIUM`, `LOW`), work mode, employment type, or source account.
+- **Manual Scan ("🚀 SCAN NOW")**: Server-side endpoint triggers immediate execution cycles without bypassing deduplication or resetting start times.
+- **Automated 2-Hour Worker**: Scheduled background worker runs automatically on GitHub Actions (`0 */2 * * *`) even when local machines are powered off.
+- **Multi-Channel Notifications**: Optional HTML Email (Resend) and Telegram bot notifications run in isolated channels without blocking dashboard insertions.
+
+---
+
+## 🏗 System Architecture
+
+```text
+               INSTAGRAM ACCOUNTS (69 Monitored Feeds)
+                                 ↓
+              APIFY INSTAGRAM SCRAPER (apify~instagram-scraper)
+                                 ↓
+                    RAW INSTAGRAM POSTS & REELS
+                                 ↓
+                    JOB DETECTION & CLASSIFICATION
+                                 ↓
+                      AGENT_START_TIME CUTOFF
+                                 ↓
+                   CANONICAL POST ID DEDUPLICATION
+                                 ↓
+                     POSTGRESQL / SUPABASE DB
+                                 ↓
+              ┌───────────────────────────────────┐
+              │    WEB DASHBOARD (React + Vite)   │
+              └───────────────────────────────────┘
+                                 ↓
+        ┌────────────────────────┼────────────────────────┐
+        ↓                        ↓                        ↓
+      TODAY                  HISTORY                   SEARCH
+  (Asia/Kolkata)           (Day-wise)              & MULTI-FILTERS
+```
+
+---
+
+## 📡 REST API Endpoints
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/jobs` | `GET` | Paginated day-wise job alerts. Query params: `date` (YYYY-MM-DD), `search`, `role`, `location`, `relevance`, `workMode`, `employmentType`, `sort`, `page`, `limit`. |
+| `/api/jobs/stats` | `GET` | Dashboard statistics metrics (today's jobs, new 24h jobs, high relevance, 69 monitored accounts, total scanned, last successful check). |
+| `/api/jobs/history` | `GET` | List of historical dates with job counts for day-wise navigation. |
+| `/api/jobs/:id` | `GET` | Complete details for a single job post. |
+| `/api/jobs/scan` | `POST` | Triggers a manual check cycle (`SchedulerService.executeCheckCycle()`). |
+| `/api/agent/status` | `GET` | Current agent state (`RUNNING`/`PAUSED`/`STOPPED`), `AGENT_START_TIME`, and `LAST_SUCCESSFUL_CHECK`. |
+| `/api/sources` | `GET` | List of active monitored Instagram sources. |
+
+---
+
+## 🚀 Local Setup & Development
+
+### 1. Install Project Dependencies
 ```bash
 npm install
 cd frontend && npm install && cd ..
 ```
 
-### 2. Push Database Schema
-```bash
-npx prisma generate
-npx prisma db push
+### 2. Configure Environment Variables (`.env`)
+Create a `.env` file in the project root based on `.env.example`:
+```env
+DATABASE_URL="postgresql://postgres:password@db.supabase.co:5432/postgres"
+APIFY_API_TOKEN="apify_api_your_token_here"
+EMAIL_TO="vivekdandotiya772@gmail.com"
+RESEND_API_KEY="re_your_resend_key_here"
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_CHAT_ID=""
 ```
 
-### 3. Run Diagnostic Connectivity Test
+### 3. Generate Prisma Client & Push Database Schema
 ```bash
-npm run test:instagram
+npx prisma generate --schema=prisma/schema.prisma
+npx prisma db push --schema=prisma/schema.prisma
 ```
 
-### 4. Start Development Server
+### 4. Start Development Servers
 ```bash
 # Terminal 1: Backend API (Port 3001)
 npm run dev:backend
@@ -59,19 +99,17 @@ npm run dev:frontend
 
 ---
 
-## 🐳 Docker Deployment
-
-Run the complete dockerized application with a single command:
-```bash
-docker compose up -d
-```
-Access dashboard at `http://localhost:3001`.
-
----
-
 ## 🧪 Running Automated Tests
 
-Run the full Vitest suite testing timestamp cutoff logic, deduplication, location matching, and classifiers:
+Run the full Vitest suite testing timestamp cutoff logic, source counts (69 accounts), keyword classification, email alerts, deduplication, and location matching:
 ```bash
 npm test
 ```
+
+---
+
+## ⚙️ Scheduled Production Execution (GitHub Actions)
+
+The repository includes a scheduled production worker in `.github/workflows/job-monitor.yml` running every 2 hours:
+- Cron Schedule: `0 */2 * * *`
+- Executes preflight checks, synchronizes database schema, retrieves Instagram posts from Apify, and saves qualifying job posts directly to Supabase PostgreSQL for display on the Web Dashboard.

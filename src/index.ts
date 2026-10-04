@@ -10,6 +10,7 @@ import agentRoutes from './routes/agent.routes.js';
 import sourcesRoutes from './routes/sources.routes.js';
 import filtersRoutes from './routes/filters.routes.js';
 import alertsRoutes from './routes/alerts.routes.js';
+import jobsRoutes from './routes/jobs.routes.js';
 import logsRoutes from './routes/logs.routes.js';
 
 const app = express();
@@ -22,6 +23,7 @@ app.use('/api/agent', agentRoutes);
 app.use('/api/sources', sourcesRoutes);
 app.use('/api/filters', filtersRoutes);
 app.use('/api/alerts', alertsRoutes);
+app.use('/api/jobs', jobsRoutes);
 app.use('/api/logs', logsRoutes);
 
 // Health check endpoint
