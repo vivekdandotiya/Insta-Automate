@@ -63,13 +63,17 @@ export const DEFAULT_MONITORED_ACCOUNTS: string[] = [
   'raul_the_rockstar',
   'saaadrashid',
   'ags.consultants',
-  'pritkargathiya.ai'
+  'pritkargathiya.ai',
+  'tech_jobs_india',
+  'careerwithkumar',
+  'ca.nikitasimplifies',
+  '._scholarly_insights._'
 ];
 
 /**
  * Single source of truth for monitored Instagram accounts.
  * Reads MONITORED_INSTAGRAM_ACCOUNTS env var if provided (comma-separated list),
- * otherwise defaults to the 65 configured accounts above.
+ * otherwise defaults to the 69 configured accounts above.
  */
 export function getMonitoredInstagramAccounts(): string[] {
   const envAccounts = process.env.MONITORED_INSTAGRAM_ACCOUNTS;

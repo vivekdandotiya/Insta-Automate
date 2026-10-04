@@ -12,7 +12,7 @@ export interface UserPreferences {
 
 export class FilterService {
   /**
-   * Normalize location variations (Requirement 15)
+   * Normalize location variations
    */
   public static normalizeLocation(location: string): string[] {
     const locLower = location.toLowerCase();
@@ -27,11 +27,20 @@ export class FilterService {
     if (locLower.includes('delhi')) {
       result.push('Delhi', 'New Delhi', 'Delhi NCR');
     }
+    if (locLower.includes('ghaziabad')) {
+      result.push('Ghaziabad', 'Delhi NCR');
+    }
+    if (locLower.includes('faridabad')) {
+      result.push('Faridabad', 'Delhi NCR');
+    }
     if (locLower.includes('delhi ncr') || locLower.includes('ncr')) {
-      result.push('Delhi', 'New Delhi', 'Delhi NCR', 'Noida', 'Gurgaon', 'Gurugram', 'Greater Noida');
+      result.push('Delhi', 'New Delhi', 'Delhi NCR', 'Noida', 'Gurgaon', 'Gurugram', 'Greater Noida', 'Ghaziabad', 'Faridabad');
     }
     if (locLower.includes('remote') || locLower.includes('work from home') || locLower.includes('wfh')) {
       result.push('Remote');
+    }
+    if (locLower.includes('pan india') || locLower.includes('india') || locLower.includes('across india')) {
+      result.push('Pan India', 'India');
     }
 
     return Array.from(new Set(result));

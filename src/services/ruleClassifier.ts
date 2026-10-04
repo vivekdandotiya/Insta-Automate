@@ -2,46 +2,76 @@ import { JobClassificationResult } from './classifier.interface.js';
 
 export class RuleClassifier {
   private static JOB_TERMS = [
-    'hiring', 'hiring alert', 'job alert', 'job opening', 'open positions',
-    'vacancy', 'vacancies', 'recruitment', 'recruiting', "we're hiring", 'now hiring',
-    'apply now', 'career opportunity', 'walk-in', 'walk in interview', 'interview',
-    'internship', 'intern', 'fresher', 'freshers', 'graduate hiring', 'off campus',
-    'work from home', 'remote job', 'software developer', 'software engineer',
-    'full stack developer', 'frontend developer', 'backend developer', 'react developer',
-    'node.js developer', 'java developer', 'python developer', 'qa', 'tester',
-    'automation tester', 'devops', 'data analyst', 'bde', 'business development executive',
-    'customer support', 'technical support'
+    // Job Related
+    'job', 'jobs', 'job alert', 'job alerts', 'vacancy', 'vacancies', 'opening', 'openings',
+    'job opening', 'hiring', 'actively hiring', 'recruitment', 'recruiting', 'career', 'careers',
+    'employment', 'opportunity', 'opportunities', 'work opportunity', 'career opportunity',
+    'job opportunity', "we're hiring", 'now hiring', 'apply now', 'apply link',
+    // Internship
+    'internship', 'internships', 'intern', 'hiring interns', 'internship opening',
+    'internship opportunity', 'paid internship', 'unpaid internship', 'summer internship',
+    'software internship', 'tech internship',
+    // Fresher / Entry Level
+    'fresher', 'freshers', 'freshers hiring', 'entry level', 'entry-level', 'graduate hiring',
+    'graduate jobs', 'campus hiring', 'campus placement', '0 years experience', 'no experience',
+    'fresh graduates', 'off campus',
+    // Recruitment Drives
+    'recruitment drive', 'hiring drive', 'walk-in', 'walk in interview', 'interview drive',
+    'mega hiring', 'mass hiring', 'immediate joining', 'urgent hiring',
+    // Tech / IT
+    'it jobs', 'it vacancy', 'software jobs', 'software engineer', 'software developer',
+    'developer hiring', 'web developer', 'frontend developer', 'backend developer',
+    'full stack developer', 'fullstack developer', 'react developer', 'node.js developer',
+    'java developer', 'python developer', 'javascript developer', 'qa', 'tester',
+    'automation tester', 'devops', 'cloud', 'data analyst', 'data engineer',
+    'machine learning', 'ai', 'ui ux', 'ui/ux designer', 'product designer',
+    'technical support', 'software support', 'it support',
+    // Non-tech / Business
+    'bde', 'business development', 'business development executive', 'sales',
+    'customer support', 'customer care', 'customer service', 'hr', 'recruiter',
+    'talent acquisition', 'operations'
   ];
 
   private static ROLES = [
     { label: 'Full Stack Developer', keywords: ['full stack', 'fullstack', 'mern', 'mean'] },
-    { label: 'Frontend Developer', keywords: ['frontend', 'front end', 'react', 'vue', 'angular', 'next.js'] },
-    { label: 'Backend Developer', keywords: ['backend', 'back end', 'node', 'express', 'python', 'java', 'django', 'spring'] },
-    { label: 'Software Engineer', keywords: ['software engineer', 'software developer', 'sde', 'coder'] },
-    { label: 'BDE', keywords: ['bde', 'business development', 'sales executive', 'inside sales'] },
-    { label: 'Customer Support', keywords: ['customer support', 'customer care', 'technical support', 'helpdesk'] },
+    { label: 'Frontend Developer', keywords: ['frontend', 'front end', 'react', 'vue', 'angular', 'next.js', 'javascript developer'] },
+    { label: 'Backend Developer', keywords: ['backend', 'back end', 'node', 'express', 'python developer', 'java developer', 'django', 'spring'] },
+    { label: 'Software Engineer', keywords: ['software engineer', 'software developer', 'sde', 'coder', 'developer hiring', 'web developer', 'it jobs', 'software jobs'] },
     { label: 'QA / Tester', keywords: ['qa', 'tester', 'quality assurance', 'automation tester', 'selenium'] },
-    { label: 'DevOps Engineer', keywords: ['devops', 'cloud engineer', 'aws', 'docker', 'kubernetes'] },
-    { label: 'Data Engineer / Analyst', keywords: ['data analyst', 'data engineer', 'sql', 'power bi'] }
+    { label: 'DevOps Engineer', keywords: ['devops', 'cloud', 'aws', 'docker', 'kubernetes'] },
+    { label: 'Data Engineer / Analyst', keywords: ['data analyst', 'data engineer', 'machine learning', 'ai', 'sql', 'power bi'] },
+    { label: 'UI/UX & Product Designer', keywords: ['ui ux', 'ui/ux', 'product designer', 'ux designer', 'ui designer'] },
+    { label: 'BDE / Business Development', keywords: ['bde', 'business development', 'sales', 'sales executive', 'inside sales'] },
+    { label: 'Customer Support', keywords: ['customer support', 'customer care', 'customer service', 'technical support', 'helpdesk', 'software support', 'it support'] },
+    { label: 'HR & Talent Acquisition', keywords: ['hr', 'recruiter', 'talent acquisition', 'operations'] },
+    { label: 'Internship', keywords: ['internship', 'intern', 'hiring interns', 'paid internship', 'unpaid internship', 'summer internship'] }
   ];
 
   private static LOCATIONS = [
     { label: 'Noida / Delhi NCR', keywords: ['noida', 'greater noida'] },
     { label: 'Gurugram / Delhi NCR', keywords: ['gurgaon', 'gurugram'] },
-    { label: 'Delhi / Delhi NCR', keywords: ['delhi', 'new delhi', 'delhi ncr'] },
+    { label: 'Delhi / Delhi NCR', keywords: ['delhi', 'new delhi', 'delhi ncr', 'ncr'] },
+    { label: 'Ghaziabad / Faridabad', keywords: ['ghaziabad', 'faridabad'] },
     { label: 'Remote', keywords: ['remote', 'work from home', 'wfh'] },
+    { label: 'Pan India', keywords: ['pan india', 'across india', 'india', 'multiple locations'] },
     { label: 'Bangalore', keywords: ['bangalore', 'bengaluru'] },
     { label: 'Hyderabad', keywords: ['hyderabad'] },
-    { label: 'Mumbai', keywords: ['mumbai', 'pune'] }
+    { label: 'Mumbai / Pune', keywords: ['mumbai', 'pune'] }
   ];
 
   public static classify(caption: string, ocrText: string = ''): JobClassificationResult {
-    // Sanitize input to protect against malicious text manipulation (Requirement 45)
     const text = `${caption}\n${ocrText}`.toLowerCase();
 
-    // Check for generic advice / tips / non-job patterns (Section 41 False Positive Control)
-    const ADVICE_TERMS = ['tips to', 'how to crack', 'career advice', 'top 5', 'top 10', 'cheatsheet', 'roadmap for', 'guide to'];
-    const HIRING_ACTION_TERMS = ['hiring', 'vacancy', 'vacancies', 'opening', 'openings', "we're hiring", 'now hiring', 'apply now', 'apply link', 'recruiting', 'walk-in', 'walk in'];
+    // False positive control: Reject generic career tips/blogs unless there is an active hiring call
+    const ADVICE_TERMS = [
+      'tips for', 'tips to', 'how to crack', 'career advice', 'top 5', 'top 10',
+      'cheatsheet', 'roadmap for', 'guide to', 'morning routine', 'my journey', 'how i got'
+    ];
+    const HIRING_ACTION_TERMS = [
+      'hiring', 'vacancy', 'vacancies', 'opening', 'openings', "we're hiring", 'now hiring',
+      'apply now', 'apply link', 'recruiting', 'walk-in', 'walk in', 'hiring drive', 'hiring interns',
+      'link in bio', 'urgent hiring', 'immediate joining', 'internship opportunity', 'job opening'
+    ];
     
     const isAdvicePost = ADVICE_TERMS.some(t => text.includes(t)) && !HIRING_ACTION_TERMS.some(t => text.includes(t));
 
@@ -65,7 +95,7 @@ export class RuleClassifier {
         applicationMethod: 'Not specified',
         applicationLink: 'Not specified',
         contactInformation: 'Not specified',
-        reason: isAdvicePost ? 'Generic career advice or interview tips post (Section 41)' : 'No recruitment or employment keywords detected',
+        reason: isAdvicePost ? 'Generic career advice or interview tips post without active hiring call' : 'No recruitment or employment keywords detected',
         confidence: 0.95,
         relevanceScore: 'IRRELEVANT'
       };
@@ -94,7 +124,7 @@ export class RuleClassifier {
 
     // Experience Extraction
     let experience = 'Not specified';
-    if (text.includes('fresher') || text.includes('freshers') || text.includes('0-1 year') || text.includes('0-2 year') || text.includes('0-2 yrs')) {
+    if (text.includes('fresher') || text.includes('freshers') || text.includes('0-1 year') || text.includes('0-2 year') || text.includes('0-2 yrs') || text.includes('0 years') || text.includes('no experience') || text.includes('entry level')) {
       experience = '0-2 Years / Freshers';
     } else if (text.includes('1-3 year') || text.includes('1-3 yrs')) {
       experience = '1-3 Years';
@@ -132,7 +162,7 @@ export class RuleClassifier {
       salary = salaryMatch[0];
     }
 
-    // Application Link (Requirement 43)
+    // Application Link
     let applicationLink = 'Not specified';
     const urlMatch = caption.match(/(https?:\/\/[^\s]+)/i);
     if (urlMatch) {
@@ -143,8 +173,8 @@ export class RuleClassifier {
 
     // Relevance Level Scoring (HIGH, MEDIUM, LOW)
     let relevanceScore: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
-    const isPreferredLocation = text.includes('noida') || text.includes('gurgaon') || text.includes('gurugram') || text.includes('delhi') || text.includes('remote');
-    const isPreferredRole = ['Software Engineer', 'Full Stack Developer', 'Frontend Developer', 'Backend Developer', 'BDE', 'Customer Support', 'QA / Tester'].includes(matchedRole);
+    const isPreferredLocation = text.includes('noida') || text.includes('gurgaon') || text.includes('gurugram') || text.includes('delhi') || text.includes('ghaziabad') || text.includes('faridabad') || text.includes('remote') || text.includes('india');
+    const isPreferredRole = ['Software Engineer', 'Full Stack Developer', 'Frontend Developer', 'Backend Developer', 'BDE / Business Development', 'Customer Support', 'QA / Tester', 'UI/UX & Product Designer', 'Internship'].includes(matchedRole);
 
     if (isPreferredRole && isPreferredLocation) {
       relevanceScore = 'HIGH';

@@ -10,13 +10,58 @@ describe('Comprehensive Production Audit & Test Suite (Requirement 18)', () => {
   const agentStartTime = new Date('2026-10-03T13:30:00.000Z');
 
   // --- MONITORED INSTAGRAM SOURCES AUDIT ---
-  it('Requirement: Monitored source list contains target accounts', () => {
+  it('Requirement: Monitored source list contains exactly 69 target accounts including 3 new accounts', () => {
     const accounts = getMonitoredInstagramAccounts();
-    expect(accounts.length).toBe(65);
-    expect(DEFAULT_MONITORED_ACCOUNTS.length).toBe(65);
+    expect(accounts.length).toBe(69);
+    expect(DEFAULT_MONITORED_ACCOUNTS.length).toBe(69);
+    
+    // Check key existing accounts
     expect(accounts).toContain('pranaviism.tech');
     expect(accounts).toContain('job_hiring_hub');
     expect(accounts).toContain('pritkargathiya.ai');
+    expect(accounts).toContain('tech_jobs_india');
+
+    // Check 3 newly added accounts
+    expect(accounts).toContain('careerwithkumar');
+    expect(accounts).toContain('ca.nikitasimplifies');
+    expect(accounts).toContain('._scholarly_insights._');
+  });
+
+  // --- EXPANDED KEYWORD & SEMANTIC DETECTION AUDIT ---
+  it('Requirement: Classifies expanded job keywords & rejects generic career advice', () => {
+    // 1. Job Alert Remote Freshers
+    const p1 = RuleClassifier.classify('Job Alert: Software Engineer | Remote | Freshers apply link in bio');
+    expect(p1.isJobPost).toBe(true);
+    expect(p1.role).toBe('Software Engineer');
+    expect(p1.relevanceScore).toBe('HIGH');
+
+    // 2. Walk-in hiring for Backend Developers in Noida
+    const p2 = RuleClassifier.classify('Walk-in Hiring for Backend Developers in Noida. Urgent hiring for Node.js developers.');
+    expect(p2.isJobPost).toBe(true);
+    expect(p2.role).toBe('Backend Developer');
+    expect(p2.relevanceScore).toBe('HIGH');
+
+    // 3. Internship Opportunity React Developer
+    const p3 = RuleClassifier.classify('Internship Opportunity | React Developer | Delhi | Paid internship for freshers');
+    expect(p3.isJobPost).toBe(true);
+    expect(p3.employmentType).toBe('Internship');
+    expect(p3.relevanceScore).toBe('HIGH');
+
+    // 4. Vacancy Customer Support
+    const p4 = RuleClassifier.classify('Vacancy: Customer Support Executive | Gurgaon | Mass hiring');
+    expect(p4.isJobPost).toBe(true);
+    expect(p4.role).toBe('Customer Support');
+
+    // 5. Generic Career Content (Must be REJECTED)
+    const g1 = RuleClassifier.classify('10 career tips for students');
+    expect(g1.isJobPost).toBe(false);
+    expect(g1.relevanceScore).toBe('IRRELEVANT');
+
+    const g2 = RuleClassifier.classify('My morning routine as a developer');
+    expect(g2.isJobPost).toBe(false);
+
+    const g3 = RuleClassifier.classify('How I got my first job in IT');
+    expect(g3.isJobPost).toBe(false);
   });
 
   // --- 1 & 2. APIFY API TOKEN VALIDATION ---
@@ -120,26 +165,20 @@ describe('Comprehensive Production Audit & Test Suite (Requirement 18)', () => {
     expect(processedPostIds.has('C_NEW_POST_102')).toBe(false);
   });
 
-  // --- 12 & 13. JOB CLASSIFICATION & ADVICE FALSE POSITIVES ---
-  it('Requirement 12 & 13: Classifies hiring opportunities correctly & rejects generic advice', () => {
-    const hiringPost = RuleClassifier.classify('🚨 Hiring Alert! ABC Tech is hiring Full Stack Developers in Noida. Freshers apply now: https://abctech.careers');
-    expect(hiringPost.isJobPost).toBe(true);
-    expect(hiringPost.role).toBe('Full Stack Developer');
-
-    const advicePost = RuleClassifier.classify('5 tips to improve your resume.');
-    expect(advicePost.isJobPost).toBe(false);
-    expect(advicePost.relevanceScore).toBe('IRRELEVANT');
-  });
-
   // --- 14. LOCATION SYNONYM MATCHING ---
-  it('Requirement 14: Location Synonym Resolution matches Gurgaon <-> Gurugram and Delhi NCR', () => {
+  it('Requirement 14: Location Synonym Resolution matches Gurgaon <-> Gurugram, Ghaziabad, Faridabad and Delhi NCR', () => {
     const locs = FilterService.normalizeLocation('Gurgaon');
     expect(locs).toContain('Gurugram');
+
+    const gzLocs = FilterService.normalizeLocation('Ghaziabad');
+    expect(gzLocs).toContain('Delhi NCR');
 
     const ncrLocs = FilterService.normalizeLocation('Delhi NCR');
     expect(ncrLocs).toContain('Noida');
     expect(ncrLocs).toContain('Gurugram');
     expect(ncrLocs).toContain('Delhi');
+    expect(ncrLocs).toContain('Ghaziabad');
+    expect(ncrLocs).toContain('Faridabad');
   });
 
   // --- 15. TELEGRAM ALERT MESSAGE FORMATTING ---
