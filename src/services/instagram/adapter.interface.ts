@@ -11,4 +11,5 @@ export interface RawInstagramPost {
 
 export interface InstagramAdapter {
   fetchLatestPosts(sourceAccount: string): Promise<RawInstagramPost[]>;
+  fetchBatchPosts?(sourceAccounts: string[]): Promise<RawInstagramPost[]>;
 }

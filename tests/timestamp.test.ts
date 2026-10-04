@@ -3,9 +3,20 @@ import { isPostAfterStartTime } from '../src/utils/date.js';
 import { RuleClassifier } from '../src/services/ruleClassifier.js';
 import { FilterService } from '../src/services/filter.service.js';
 import { TelegramService } from '../src/services/telegram.service.js';
+import { getMonitoredInstagramAccounts, DEFAULT_MONITORED_ACCOUNTS } from '../src/config/sources.config.js';
 
 describe('Comprehensive Production Audit & Test Suite (Requirement 18)', () => {
   const agentStartTime = new Date('2026-10-03T13:30:00.000Z');
+
+  // --- MONITORED INSTAGRAM SOURCES AUDIT ---
+  it('Requirement: Monitored source list contains exactly 65 target accounts', () => {
+    const accounts = getMonitoredInstagramAccounts();
+    expect(accounts.length).toBe(65);
+    expect(DEFAULT_MONITORED_ACCOUNTS.length).toBe(65);
+    expect(accounts).toContain('pranaviism.tech');
+    expect(accounts).toContain('job_hiring_hub');
+    expect(accounts).toContain('pritkargathiya.ai');
+  });
 
   // --- 1 & 2. APIFY API TOKEN VALIDATION ---
   it('Requirement 1 & 16: Missing APIFY_API_TOKEN fails clearly without fallback to mock', async () => {
