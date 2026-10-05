@@ -8,7 +8,6 @@ export async function connectDb() {
     await prisma.$connect();
     logger.info('Database connected successfully');
   } catch (error) {
-    logger.error('Failed to connect to database', { error });
-    process.exit(1);
+    logger.warn('Initial database connection warning:', error);
   }
 }

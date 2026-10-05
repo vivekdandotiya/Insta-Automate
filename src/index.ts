@@ -40,18 +40,20 @@ async function bootstrap() {
   logger.info('   BOOTSTRAPPING INSTAGRAM JOB SEARCH ENGINE');
   logger.info('=====================================================');
 
-  // 1. Database Connection
-  await connectDb();
-
-  // 2. Initialize Agent State & AGENT_START_TIME (Preserves start time)
-  const agentState = await AgentStateService.getOrCreateAgentState();
-  logger.info(`[AGENT ENGINE] Status: ${agentState.status}`);
-  logger.info(`[AGENT ENGINE] Manual scan ready. Automatic 2-hour cron loop disabled.`);
-
-  // 3. Start HTTP Server
+  // 1. Start HTTP Server immediately for health checks
   app.listen(config.port, () => {
     logger.info(`[HTTP SERVER] Running on port ${config.port} (${config.nodeEnv})`);
   });
+
+  // 2. Database Connection & Agent State Initialization
+  try {
+    await connectDb();
+    const agentState = await AgentStateService.getOrCreateAgentState();
+    logger.info(`[AGENT ENGINE] Status: ${agentState.status}`);
+    logger.info(`[AGENT ENGINE] Manual scan ready. Automatic 2-hour cron loop disabled.`);
+  } catch (err: any) {
+    logger.warn('[AGENT ENGINE] Initialization warning (DB connection will retry):', err.message);
+  }
 }
 
 bootstrap().catch((err) => {
