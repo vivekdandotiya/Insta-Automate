@@ -1,9 +1,9 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { FilterService } from '../services/filter.service.js';
 
 const router = Router();
 
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const prefs = await FilterService.getUserPreferences();
     res.json({ success: true, data: prefs });
@@ -12,7 +12,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.put('/', async (req, res) => {
+router.put('/', async (req: Request, res: Response) => {
   try {
     const { roles, locations, experienceLevels, minRelevance, notificationMode } = req.body;
     const updated = await FilterService.updateUserPreferences({

@@ -1,9 +1,9 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { prisma } from '../db/client.js';
 
 const router = Router();
 
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const sources = await prisma.instagramSource.findMany({
       orderBy: { created_at: 'desc' }
@@ -14,7 +14,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     let { username, profile_url, priority } = req.body;
     if (!username) {
@@ -40,7 +40,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     await prisma.instagramSource.delete({ where: { id } });
@@ -50,7 +50,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-router.patch('/:id/toggle', async (req, res) => {
+router.patch('/:id/toggle', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const source = await prisma.instagramSource.findUnique({ where: { id } });

@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { prisma } from '../db/client.js';
 import { formatIST, formatShortIST, getISTDateString, getISTDayBounds, getISTDateLabel } from '../utils/date.js';
 import { AgentStateService } from '../services/agentState.service.js';
@@ -10,7 +10,7 @@ const router = Router();
 /**
  * GET /api/jobs - Day-wise, filtered, searched, and paginated job alert list
  */
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const {
       date,
@@ -194,7 +194,7 @@ router.get('/', async (req, res) => {
 /**
  * GET /api/jobs/stats - Overall dashboard statistics
  */
-router.get('/stats', async (req, res) => {
+router.get('/stats', async (req: Request, res: Response) => {
   try {
     const todayStr = getISTDateString(new Date());
     const { startUtc, endUtc } = getISTDayBounds(todayStr);
@@ -253,7 +253,7 @@ router.get('/stats', async (req, res) => {
 /**
  * GET /api/jobs/history - List of available dates with job counts
  */
-router.get('/history', async (req, res) => {
+router.get('/history', async (req: Request, res: Response) => {
   try {
     const posts = await prisma.processedPost.findMany({
       where: { classification: 'JOB_POST' },
@@ -295,7 +295,7 @@ router.get('/history', async (req, res) => {
 /**
  * GET /api/jobs/:id - Single job details
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const p = await prisma.processedPost.findUnique({
@@ -346,7 +346,7 @@ router.get('/:id', async (req, res) => {
 /**
  * POST /api/jobs/scan - Manual trigger check cycle
  */
-router.post('/scan', async (req, res) => {
+router.post('/scan', async (req: Request, res: Response) => {
   try {
     const result = await SchedulerService.executeCheckCycle();
     res.json({

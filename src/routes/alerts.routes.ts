@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { prisma } from '../db/client.js';
 import { config } from '../config/index.js';
 import { ClassifierService } from '../services/classifier.service.js';
@@ -8,7 +8,7 @@ import { formatIST } from '../utils/date.js';
 
 const router = Router();
 
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const { relevance, limit = 50 } = req.query;
     const where: any = {};
@@ -35,7 +35,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/metrics', async (req, res) => {
+router.get('/metrics', async (req: Request, res: Response) => {
   try {
     const totalScanned = await prisma.processedPost.count();
     const jobPostsCount = await prisma.processedPost.count({ where: { classification: 'JOB_POST' } });
@@ -60,7 +60,7 @@ router.get('/metrics', async (req, res) => {
   }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const post = await prisma.processedPost.findUnique({
@@ -86,7 +86,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Manual Test Sandbox Endpoint (Requirement 23)
-router.post('/test/classify', async (req, res) => {
+router.post('/test/classify', async (req: Request, res: Response) => {
   try {
     const { caption, imageUrl } = req.body;
     if (!caption && !imageUrl) {
@@ -109,7 +109,7 @@ router.post('/test/classify', async (req, res) => {
 });
 
 // Test Instagram Connection Endpoint (Requirements 2, 3, 4)
-router.post('/test/instagram', async (req, res) => {
+router.post('/test/instagram', async (req: Request, res: Response) => {
   const mode = (process.env.INSTAGRAM_ADAPTER_MODE || 'mock').toLowerCase();
   const testAccount = '@tech_jobs_india';
 
@@ -202,7 +202,7 @@ router.post('/test/instagram', async (req, res) => {
 });
 
 // Test Telegram Notification (Requirement 5)
-router.post('/test/telegram', async (req, res) => {
+router.post('/test/telegram', async (req: Request, res: Response) => {
   if (!config.telegramBotToken || !config.telegramChatId) {
     return res.status(400).json({
       success: false,

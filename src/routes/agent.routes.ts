@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { AgentStateService } from '../services/agentState.service.js';
 import { SchedulerService } from '../services/scheduler.service.js';
 import { formatIST } from '../utils/date.js';
@@ -6,7 +6,7 @@ import { logger } from '../utils/logger.js';
 
 const router = Router();
 
-router.get('/status', async (req, res) => {
+router.get('/status', async (req: Request, res: Response) => {
   try {
     const state = await AgentStateService.getOrCreateAgentState();
     res.json({
@@ -26,7 +26,7 @@ router.get('/status', async (req, res) => {
   }
 });
 
-router.post('/start', async (req, res) => {
+router.post('/start', async (req: Request, res: Response) => {
   try {
     await AgentStateService.setStatus('RUNNING');
     SchedulerService.startScheduler();
@@ -36,7 +36,7 @@ router.post('/start', async (req, res) => {
   }
 });
 
-router.post('/pause', async (req, res) => {
+router.post('/pause', async (req: Request, res: Response) => {
   try {
     await AgentStateService.setStatus('PAUSED');
     res.json({ success: true, message: 'Agent paused' });
@@ -45,7 +45,7 @@ router.post('/pause', async (req, res) => {
   }
 });
 
-router.post('/stop', async (req, res) => {
+router.post('/stop', async (req: Request, res: Response) => {
   try {
     await AgentStateService.setStatus('STOPPED');
     SchedulerService.stopScheduler();
@@ -55,7 +55,7 @@ router.post('/stop', async (req, res) => {
   }
 });
 
-router.post('/run-now', async (req, res) => {
+router.post('/run-now', async (req: Request, res: Response) => {
   try {
     const result = await SchedulerService.executeCheckCycle();
     res.json({ success: true, message: 'Check cycle completed', data: result });
@@ -64,7 +64,7 @@ router.post('/run-now', async (req, res) => {
   }
 });
 
-router.post('/reset-start-time', async (req, res) => {
+router.post('/reset-start-time', async (req: Request, res: Response) => {
   try {
     const { confirm } = req.body;
     if (!confirm) {

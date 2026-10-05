@@ -1,9 +1,9 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { prisma } from '../db/client.js';
 
 const router = Router();
 
-router.get('/', async (req, res) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const logs = await prisma.systemLog.findMany({
       orderBy: { timestamp: 'desc' },
