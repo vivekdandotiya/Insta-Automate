@@ -391,17 +391,63 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/jobs/scan-status - Retrieve current scan status & last scan result
+ */
+router.get('/scan-status', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: SchedulerService.getScanStatus()
+  });
+});
+
+/**
  * POST /api/jobs/scan - Manual trigger check cycle (Requirement 1 & 15)
  */
 router.post('/scan', async (req: Request, res: Response) => {
+  console.log(`[SCAN REQUEST] POST /api/jobs/scan received from ${req.ip || 'unknown'}`);
+  console.log(`[SCAN REQUEST] User-Agent: ${req.get('user-agent') || 'none'}`);
+  console.log(`[SCAN REQUEST] Origin: ${req.get('origin') || 'none'}`);
+
   try {
-    const result = await SchedulerService.executeCheckCycle();
-    res.json({
+    if (SchedulerService.isRunning) {
+      console.log('[SCAN REQUEST] Scan already in progress. Returning background status.');
+      return res.json({
+        success: true,
+        message: 'Scan cycle already in progress',
+        data: SchedulerService.getScanStatus()
+      });
+    }
+
+    // Race execution for up to 20 seconds to return fast sync response or delegate to background
+    const scanPromise = SchedulerService.executeCheckCycle();
+
+    let isTimedOut = false;
+    const timeoutPromise = new Promise<'TIMEOUT'>((resolve) => {
+      setTimeout(() => {
+        isTimedOut = true;
+        resolve('TIMEOUT');
+      }, 20000);
+    });
+
+    const result = await Promise.race([scanPromise, timeoutPromise]);
+
+    if (result === 'TIMEOUT' || isTimedOut) {
+      console.log('[SCAN REQUEST] Scan taking longer than 20s. Returning background status response.');
+      return res.json({
+        success: true,
+        message: 'Scan cycle started in background',
+        data: SchedulerService.getScanStatus()
+      });
+    }
+
+    console.log('[SCAN REQUEST] Scan completed synchronously.');
+    return res.json({
       success: true,
       message: 'Instagram job scan cycle completed',
       data: result
     });
   } catch (err: any) {
+    console.error(`[SCAN REQUEST ERROR] ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
 });

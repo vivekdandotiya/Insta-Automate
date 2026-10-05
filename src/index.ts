@@ -15,8 +15,18 @@ import logsRoutes from './routes/logs.routes.js';
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
+
+// Global HTTP Request Logger (PART 3 - Traces whether request reaches Express)
+app.use((req, res, next) => {
+  logger.info(`[HTTP] ${req.method} ${req.originalUrl || req.url}`);
+  next();
+});
 
 // API Routes
 app.use('/api/agent', agentRoutes);

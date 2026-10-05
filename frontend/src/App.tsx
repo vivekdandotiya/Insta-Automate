@@ -110,10 +110,32 @@ export default function App() {
       setScanMessage('Scanning 69 Instagram job sources...');
     }, 3000);
 
+    let keepScanningState = false;
+
     try {
       const res = await api.post('/api/jobs/scan', {}, { timeout: 180000 });
       clearTimeout(messageTimer);
       if (res.data.success) {
+        if (res.data.data?.isScanning) {
+          keepScanningState = true;
+          setScanMessage('Scanning 69 Instagram job sources in background...');
+          const pollInterval = setInterval(async () => {
+            try {
+              const statusRes = await api.get('/api/jobs/scan-status');
+              if (statusRes.data.success && !statusRes.data.data.isScanning) {
+                clearInterval(pollInterval);
+                setScanResult(statusRes.data.data.lastScanResult);
+                await fetchJobsData();
+                setIsScanning(false);
+                setScanMessage('');
+              }
+            } catch (err) {
+              console.error('Polling scan status error:', err);
+            }
+          }, 3000);
+          return;
+        }
+
         setScanResult(res.data.data);
         await fetchJobsData();
       } else {
@@ -123,8 +145,10 @@ export default function App() {
       clearTimeout(messageTimer);
       alert(e.response?.data?.error || e.message || 'Failed to trigger scan cycle');
     } finally {
-      setIsScanning(false);
-      setScanMessage('');
+      if (!keepScanningState) {
+        setIsScanning(false);
+        setScanMessage('');
+      }
     }
   };
 

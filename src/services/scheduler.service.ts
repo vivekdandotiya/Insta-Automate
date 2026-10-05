@@ -28,8 +28,16 @@ export interface ScanCycleResult {
 }
 
 export class SchedulerService {
-  private static isRunning: boolean = false;
+  public static isRunning: boolean = false;
   private static timerId: NodeJS.Timeout | null = null;
+  public static lastScanResult: ScanCycleResult | null = null;
+
+  public static getScanStatus() {
+    return {
+      isScanning: SchedulerService.isRunning,
+      lastScanResult: SchedulerService.lastScanResult
+    };
+  }
 
   /**
    * Main single-cycle manual/on-demand execution for Instagram job scans.
@@ -37,7 +45,7 @@ export class SchedulerService {
   public static async executeCheckCycle(): Promise<ScanCycleResult> {
     if (SchedulerService.isRunning) {
       logger.warn('[SCHEDULER] Scan cycle already in progress. Skipping duplicate execution.');
-      return {
+      return SchedulerService.lastScanResult || {
         sourcesConfigured: 69,
         sourcesChecked: 0,
         postsFetched: 0,
@@ -66,7 +74,7 @@ export class SchedulerService {
       if (agentState.status === 'STOPPED') {
         logger.info(`[SCHEDULER] Agent status is STOPPED. Execution skipped.`);
         SchedulerService.isRunning = false;
-        return {
+        const res: ScanCycleResult = {
           sourcesConfigured: 69,
           sourcesChecked: 0,
           postsFetched: 0,
@@ -77,6 +85,8 @@ export class SchedulerService {
           rateLimited: false,
           duration: Date.now() - startTimeMs
         };
+        SchedulerService.lastScanResult = res;
+        return res;
       }
 
       const now = new Date();
@@ -235,7 +245,7 @@ export class SchedulerService {
 
       logger.info(`[JOB SEARCH ENGINE] Scan complete in ${durationMs}ms. Sources checked: ${sourcesChecked}/${sourcesConfigured}. Posts: ${scanned}, Jobs Found: ${processed - irrelevant}, Duplicates: ${duplicates}, Ignored: ${ignoredOld + irrelevant}, Errors: ${errors + adapterErrors}, RateLimited: ${rateLimited}`);
 
-      return {
+      const resultPayload: ScanCycleResult = {
         sourcesConfigured,
         sourcesChecked,
         postsFetched: scanned,
@@ -245,7 +255,6 @@ export class SchedulerService {
         errors: errors + adapterErrors,
         rateLimited,
         duration: durationMs,
-        // Backward compatibility
         scanned,
         processed,
         jobsFound: processed - irrelevant,
@@ -254,10 +263,13 @@ export class SchedulerService {
         durationMs
       };
 
+      SchedulerService.lastScanResult = resultPayload;
+      return resultPayload;
+
     } catch (err: any) {
       logger.error(`[JOB SEARCH ENGINE] Fatal error in scan cycle: ${err.message}`);
       await AgentStateService.setStatus('ERROR', err.message);
-      return {
+      const errRes: ScanCycleResult = {
         sourcesConfigured: 69,
         sourcesChecked: 0,
         postsFetched: 0,
@@ -268,6 +280,8 @@ export class SchedulerService {
         rateLimited: false,
         duration: Date.now() - startTimeMs
       };
+      SchedulerService.lastScanResult = errRes;
+      return errRes;
     } finally {
       SchedulerService.isRunning = false;
     }
