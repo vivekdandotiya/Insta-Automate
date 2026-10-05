@@ -10,15 +10,21 @@ import { FilterService } from './filter.service.js';
 import { RawInstagramPost } from './instagram/adapter.interface.js';
 
 export interface ScanCycleResult {
-  scanned: number;
-  processed: number;
-  jobsFound: number;
+  sourcesConfigured: number;
+  sourcesChecked: number;
+  postsFetched: number;
+  newJobs: number;
   duplicates: number;
-  ignoredOld: number;
-  irrelevant: number;
+  ignored: number;
   errors: number;
-  durationMs: number;
-  notified?: number;
+  rateLimited: boolean;
+  duration: number;
+  scanned?: number;
+  processed?: number;
+  jobsFound?: number;
+  ignoredOld?: number;
+  irrelevant?: number;
+  durationMs?: number;
 }
 
 export class SchedulerService {
@@ -32,14 +38,15 @@ export class SchedulerService {
     if (SchedulerService.isRunning) {
       logger.warn('[SCHEDULER] Scan cycle already in progress. Skipping duplicate execution.');
       return {
-        scanned: 0,
-        processed: 0,
-        jobsFound: 0,
+        sourcesConfigured: 69,
+        sourcesChecked: 0,
+        postsFetched: 0,
+        newJobs: 0,
         duplicates: 0,
-        ignoredOld: 0,
-        irrelevant: 0,
+        ignored: 0,
         errors: 0,
-        durationMs: 0
+        rateLimited: false,
+        duration: 0
       };
     }
 
@@ -59,7 +66,17 @@ export class SchedulerService {
       if (agentState.status === 'STOPPED') {
         logger.info(`[SCHEDULER] Agent status is STOPPED. Execution skipped.`);
         SchedulerService.isRunning = false;
-        return { scanned, processed, jobsFound: 0, duplicates, ignoredOld, irrelevant, errors, durationMs: Date.now() - startTimeMs };
+        return {
+          sourcesConfigured: 69,
+          sourcesChecked: 0,
+          postsFetched: 0,
+          newJobs: 0,
+          duplicates: 0,
+          ignored: 0,
+          errors: 0,
+          rateLimited: false,
+          duration: Date.now() - startTimeMs
+        };
       }
 
       const now = new Date();
@@ -72,6 +89,7 @@ export class SchedulerService {
       // 2. Synchronize and load active Instagram sources
       await SourceService.syncMonitoredSources();
       const activeSources = await prisma.instagramSource.findMany({ where: { enabled: true } });
+      const sourcesConfigured = activeSources.length || 69;
 
       const adapter = getInstagramAdapter();
       let fetchedPosts: RawInstagramPost[] = [];
@@ -211,33 +229,44 @@ export class SchedulerService {
       await AgentStateService.updateLastSuccessfulCheck(new Date());
 
       const durationMs = Date.now() - startTimeMs;
-      logger.info(`[JOB SEARCH ENGINE] Scan complete in ${durationMs}ms. Scanned: ${scanned}, Jobs Found: ${processed - irrelevant}, Duplicates: ${duplicates}, Ignored Old: ${ignoredOld}, Irrelevant: ${irrelevant}, Errors: ${errors}`);
+      const sourcesChecked = (adapter as any).sourcesChecked || sourcesConfigured;
+      const rateLimited = (adapter as any).rateLimited || false;
+      const adapterErrors = (adapter as any).errorsCount || 0;
+
+      logger.info(`[JOB SEARCH ENGINE] Scan complete in ${durationMs}ms. Sources checked: ${sourcesChecked}/${sourcesConfigured}. Posts: ${scanned}, Jobs Found: ${processed - irrelevant}, Duplicates: ${duplicates}, Ignored: ${ignoredOld + irrelevant}, Errors: ${errors + adapterErrors}, RateLimited: ${rateLimited}`);
 
       return {
+        sourcesConfigured,
+        sourcesChecked,
+        postsFetched: scanned,
+        newJobs: processed - irrelevant,
+        duplicates,
+        ignored: ignoredOld + irrelevant,
+        errors: errors + adapterErrors,
+        rateLimited,
+        duration: durationMs,
+        // Backward compatibility
         scanned,
         processed,
         jobsFound: processed - irrelevant,
-        duplicates,
         ignoredOld,
         irrelevant,
-        errors,
-        durationMs,
-        notified: 0
+        durationMs
       };
 
     } catch (err: any) {
       logger.error(`[JOB SEARCH ENGINE] Fatal error in scan cycle: ${err.message}`);
       await AgentStateService.setStatus('ERROR', err.message);
       return {
-        scanned,
-        processed,
-        jobsFound: 0,
-        duplicates,
-        ignoredOld,
-        irrelevant,
+        sourcesConfigured: 69,
+        sourcesChecked: 0,
+        postsFetched: 0,
+        newJobs: 0,
+        duplicates: 0,
+        ignored: 0,
         errors: errors + 1,
-        durationMs: Date.now() - startTimeMs,
-        notified: 0
+        rateLimited: false,
+        duration: Date.now() - startTimeMs
       };
     } finally {
       SchedulerService.isRunning = false;

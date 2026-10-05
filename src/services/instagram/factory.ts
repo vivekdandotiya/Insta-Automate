@@ -4,13 +4,17 @@ import { ScraperInstagramAdapter } from './scraperAdapter.js';
 import { OfficialGraphApiAdapter } from './graphApiAdapter.js';
 import { ApifyInstagramAdapter } from './apifyAdapter.js';
 import { RapidApiInstagramAdapter } from './rapidApiAdapter.js';
+import { InstaloaderInstagramAdapter } from './instaloaderAdapter.js';
 import { config } from '../../config/index.js';
 import { logger } from '../../utils/logger.js';
 
 export function getInstagramAdapter(): InstagramAdapter {
-  const mode = config.instagramAdapterMode.toLowerCase();
+  const mode = (config.instagramAdapterMode || 'instaloader').toLowerCase();
 
   switch (mode) {
+    case 'instaloader':
+      logger.info('Using Self-Hosted Instaloader Open-Source Instagram Adapter');
+      return new InstaloaderInstagramAdapter();
     case 'apify':
       logger.info('Using Apify Instagram Actor Adapter (Public Accounts & Reels Support)');
       return new ApifyInstagramAdapter();
@@ -24,8 +28,10 @@ export function getInstagramAdapter(): InstagramAdapter {
       logger.info('Using Custom Scraper Gateway Instagram Adapter');
       return new ScraperInstagramAdapter();
     case 'mock':
-    default:
       logger.info('Using Mock Instagram Adapter for local testing & demo');
       return new MockInstagramAdapter();
+    default:
+      logger.info('Defaulting to Self-Hosted Instaloader Open-Source Instagram Adapter');
+      return new InstaloaderInstagramAdapter();
   }
 }

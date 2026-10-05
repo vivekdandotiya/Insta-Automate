@@ -38,9 +38,9 @@ export const config = {
   // OCR Feature Flag
   ocrEnabled: process.env.OCR_ENABLED !== 'false',
   
-  // Instagram Access Mode Choices: apify | rapidapi | graph_api | scraper | mock
-  // DEFAULTS TO 'apify' IN PRODUCTION IF UNSET
-  instagramAdapterMode: getEnvString('INSTAGRAM_ADAPTER_MODE', 'apify'),
+  // Instagram Access Mode Choices: instaloader | apify | rapidapi | graph_api | scraper | mock
+  // DEFAULTS TO 'instaloader' IF UNSET
+  instagramAdapterMode: getEnvString('INSTAGRAM_ADAPTER_MODE', 'instaloader'),
   apifyApiToken: getEnvString('APIFY_API_TOKEN', ''),
   apifyActorId: getEnvString('APIFY_ACTOR_ID', 'apify~instagram-scraper'),
   rapidApiKey: getEnvString('RAPIDAPI_KEY', ''),
