@@ -1,10 +1,20 @@
 /// <reference types="vite/client" />
 import axios from 'axios';
 
-// Dynamic API Base URL from environment variable (Vercel production -> Render backend URL)
-const rawBaseURL = (import.meta as any).env?.VITE_API_BASE_URL || '';
-export const API_BASE_URL = typeof rawBaseURL === 'string' ? rawBaseURL.replace(/\/$/, '') : '';
+// Live production Render backend URL fallback
+const DEFAULT_PRODUCTION_URL = 'https://insta-automate-1.onrender.com';
+
+const rawBaseURL =
+  (import.meta as any).env?.VITE_API_URL ||
+  (import.meta as any).env?.VITE_API_BASE_URL ||
+  DEFAULT_PRODUCTION_URL;
+
+export const API_BASE_URL =
+  typeof rawBaseURL === 'string' && rawBaseURL.trim() !== ''
+    ? rawBaseURL.trim().replace(/\/$/, '')
+    : DEFAULT_PRODUCTION_URL;
 
 export const api = axios.create({
   baseURL: API_BASE_URL
 });
+
