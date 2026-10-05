@@ -202,6 +202,8 @@ export class SchedulerService {
 
         // Create JobAlert database record if qualifying job post
         if (isQualifyingJob) {
+          logger.info(`[JOB CANDIDATE]\nusername=${post.sourceAccount}\nmediaType=${post.postType}\nshortcode=${post.id}\npublishedAt=${formatIST(pubTime)}\ntitle=${jobResult.role}\ncompany=${jobResult.company}\nlocation=${jobResult.location}\nrelevance=${jobResult.relevanceScore}\nrelevanceReason=${jobResult.relevanceReason || 'Matched Keywords'}\napplicationUrl=${jobResult.applicationUrl || 'none'}\ntestUrl=${jobResult.testUrl || 'none'}\ninterviewUrl=${jobResult.interviewUrl || 'none'}`);
+
           await prisma.jobAlert.create({
             data: {
               processed_post_id: processedRecord.id,

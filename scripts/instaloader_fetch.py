@@ -1,8 +1,13 @@
 import sys
 import json
+import os
 import time
+from datetime import datetime, timezone, timedelta
 
 def fetch_account(username):
+    POST_LIMIT = int(os.environ.get('INSTAGRAM_POST_LIMIT', '5'))
+    REEL_LIMIT = int(os.environ.get('INSTAGRAM_REEL_LIMIT', '10'))
+
     try:
         import instaloader
         L = instaloader.Instaloader(
@@ -21,11 +26,13 @@ def fetch_account(username):
         posts = []
         posts_checked = 0
         reels_checked = 0
+        now_utc = datetime.now(timezone.utc)
+        cutoff_24h = now_utc - timedelta(hours=36) # Safe 36h buffer to prevent timezone boundary cutoff
 
         # 1. Fetch recent Feed Posts
         try:
             for idx, post in enumerate(profile.get_posts()):
-                if idx >= 5:
+                if idx >= POST_LIMIT:
                     break
                 posts_checked += 1
                 item_id = post.shortcode or str(post.mediaid)
@@ -33,10 +40,16 @@ def fetch_account(username):
                     continue
                 seen_ids.add(item_id)
 
+                pub_utc = post.date_utc.replace(tzinfo=timezone.utc) if post.date_utc else None
+                # Stop if post is clearly older than cutoff
+                if pub_utc and pub_utc < cutoff_24h:
+                    break
+
                 is_reel = post.is_video or getattr(post, 'typename', '') == 'GraphVideo'
                 posts.append({
                     "id": item_id,
-                    "postUrl": f"https://www.instagram.com/p/{post.shortcode}/" if not is_reel else f"https://www.instagram.com/reel/{post.shortcode}/",
+                    "shortcode": post.shortcode,
+                    "postUrl": f"https://www.instagram.com/reel/{post.shortcode}/" if is_reel else f"https://www.instagram.com/p/{post.shortcode}/",
                     "caption": post.caption or "",
                     "publishedAt": post.date_utc.isoformat() + "Z" if post.date_utc else "",
                     "postType": "REEL" if is_reel else "POST"
@@ -50,7 +63,7 @@ def fetch_account(username):
         try:
             if hasattr(profile, 'get_reels'):
                 for idx, reel in enumerate(profile.get_reels()):
-                    if idx >= 5:
+                    if idx >= REEL_LIMIT:
                         break
                     reels_checked += 1
                     item_id = reel.shortcode or str(reel.mediaid)
@@ -58,8 +71,13 @@ def fetch_account(username):
                         continue
                     seen_ids.add(item_id)
 
+                    pub_utc = reel.date_utc.replace(tzinfo=timezone.utc) if reel.date_utc else None
+                    if pub_utc and pub_utc < cutoff_24h:
+                        break
+
                     posts.append({
                         "id": item_id,
+                        "shortcode": reel.shortcode,
                         "postUrl": f"https://www.instagram.com/reel/{reel.shortcode}/",
                         "caption": reel.caption or "",
                         "publishedAt": reel.date_utc.isoformat() + "Z" if reel.date_utc else "",

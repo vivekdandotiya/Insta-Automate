@@ -49,7 +49,10 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
           const rCount = output.reelsChecked || 0;
           let newReelCount = 0;
           for (const item of output.posts) {
-            if (item.postType === 'REEL') newReelCount++;
+            if (item.postType === 'REEL') {
+              newReelCount++;
+              logger.info(`[REELS FETCHED] account=@${username} shortcode=${item.shortcode || item.id} postUrl=${item.postUrl} publishedAt=${item.publishedAt}`);
+            }
             allPosts.push({
               id: item.id,
               sourceAccount: `@${username}`,
@@ -61,7 +64,7 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
               hashtags: (item.caption || '').match(/#\w+/g) || []
             });
           }
-          logger.info(`[INSTAGRAM] @${username}\n[INSTAGRAM] Normal posts checked: ${pCount}\n[INSTAGRAM] Reels checked: ${rCount}\n[INSTAGRAM] New Reel jobs: ${newReelCount}`);
+          logger.info(`[INSTAGRAM] @${username}\n[POSTS] count=${pCount}\n[REELS] count=${rCount}\n[REELS ACCEPTED] count=${newReelCount}`);
         } else {
           this.sourcesChecked++;
           if (output.error) {

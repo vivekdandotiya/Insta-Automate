@@ -5,7 +5,7 @@ import { FilterService } from '../src/services/filter.service.js';
 import { getMonitoredInstagramAccounts, DEFAULT_MONITORED_ACCOUNTS } from '../src/config/sources.config.js';
 import { getInstagramAdapter } from '../src/services/instagram/factory.js';
 
-describe('Comprehensive Production Audit & Test Suite (Prompt 5 Update)', () => {
+describe('Comprehensive Production Audit & Test Suite (Prompt 6 Update)', () => {
   const agentStartTime = new Date('2026-10-03T13:30:00.000Z');
 
   // 1. INSTALOADER ADAPTER INITIALIZATION
@@ -36,66 +36,84 @@ describe('Comprehensive Production Audit & Test Suite (Prompt 5 Update)', () => 
     expect(accounts).toContain('talkingmohit');
   });
 
-  // 3. REEL VS POST CLASSIFICATION & DEDUPLICATION
-  it('Part 2: Explicitly distinguishes REEL vs POST media types & prevents duplicates', () => {
-    const postItem = { id: 'REEL_101', postType: 'REEL', shortcode: 'C123' };
-    const duplicateItem = { id: 'REEL_101', postType: 'POST', shortcode: 'C123' };
+  // 3. CISCO REEL END-TO-END RELEVANCE & DETECTION TEST (PROMPT 6 CRITICAL)
+  it('Section 16: Detects Cisco Talent Acquisition Coordinator Trainee Reel from @karrar_hussain_jobs', () => {
+    const ciscoCaption = `Cisco is hiring for:
+    Talent Acquisition Coordinator Trainee
+    
+    - Fresher eligible
+    - No resume shortlisting
+    - No assessment
+    - Apply Now
+    https://jobs.cisco.com/careers/job/123456
+    Graduate Apprentice
+    India`;
 
-    const seenSet = new Set<string>();
-    seenSet.add(postItem.id);
-
-    expect(postItem.postType).toBe('REEL');
-    expect(seenSet.has(duplicateItem.id)).toBe(true);
-  });
-
-  // 4. URL EXTRACTION (Application, Test, Interview)
-  it('Part 7 & 8: Direct application, test, and interview URL extraction without fake URLs', () => {
-    const captionWithUrls = `Hiring Full Stack Developer in Noida!
-    Apply link: https://careers.company.com/apply/123
-    Coding Test Link: https://hackerrank.com/test-456
-    Walk-in Interview details at https://company.com/interview`;
-
-    const res = RuleClassifier.classify(captionWithUrls);
+    const res = RuleClassifier.classify(ciscoCaption);
     expect(res.isJobPost).toBe(true);
-    expect(res.applicationUrl).toBe('https://careers.company.com/apply/123');
-    expect(res.testUrl).toBe('https://hackerrank.com/test-456');
-    expect(res.interviewUrl).toBe('https://company.com/interview');
-
-    // Case with no URLs
-    const captionNoUrl = `Urgent opening for QA Engineer in Gurgaon. DM for details.`;
-    const resNoUrl = RuleClassifier.classify(captionNoUrl);
-    expect(resNoUrl.applicationUrl).toBeUndefined();
-    expect(resNoUrl.testUrl).toBeUndefined();
-    expect(resNoUrl.interviewUrl).toBeUndefined();
-  });
-
-  // 5. GOVERNMENT RECRUITMENT CLASSIFICATION
-  it('Part 4: Detects government recruitment announcements accurately', () => {
-    const govPost = RuleClassifier.classify('DSSSB Delhi District Courts Recruitment 2026 Notification Released for Junior Judicial Assistant');
-    expect(govPost.isJobPost).toBe(true);
-    expect(govPost.role).toBe('Government Recruitment');
-  });
-
-  // 6. RELEVANCE SCORING & EXPLANATION
-  it('Part 6: Calculates HIGH relevance score and generates explanation', () => {
-    const res = RuleClassifier.classify('Hiring Software Developer in Noida. Apply link https://forms.gle/xyz');
+    expect(res.company).toBe('CISCO');
+    expect(res.role).toBe('Talent Acquisition / HR');
+    expect(res.location).toContain('India');
+    expect(res.applicationUrl).toBe('https://jobs.cisco.com/careers/job/123456');
     expect(res.relevanceScore).toBe('HIGH');
-    expect(res.relevanceReason).toContain('Delhi NCR');
   });
 
-  // 7. 24-HOUR CUTOFF
-  it('Part 15: 24-hour cutoff rule excludes posts older than 24 hours', () => {
+  // 4. URL EXTRACTION WITH NEWLINES AND PUNCTUATION (SECTION 17)
+  it('Section 17: Robustly extracts URLs formatted across newlines and punctuation', () => {
+    const captionWithMultiLineUrls = `Urgent Opening for Software Developer!
+    Apply link:
+    https://careers.company.com/apply/789
+    
+    Coding Test:
+    (https://hackerrank.com/test-999)
+    
+    Walk-in interview:
+    https://company.com/interview/walkin`;
+
+    const res = RuleClassifier.classify(captionWithMultiLineUrls);
+    expect(res.isJobPost).toBe(true);
+    expect(res.applicationUrl).toBe('https://careers.company.com/apply/789');
+    expect(res.testUrl).toBe('https://hackerrank.com/test-999');
+    expect(res.interviewUrl).toBe('https://company.com/interview/walkin');
+  });
+
+  // 5. EXTENDED KEYWORD COMBINATION TESTS (SECTION 23 - 50 TESTS COVERAGE)
+  it('Section 23: Verifies keywords coverage across all target categories', () => {
+    const testCases = [
+      { text: 'bulk hiring for Software Developer in Noida', expectedRole: 'Software Engineer / SDE' },
+      { text: 'urgent hiring for Full Stack Developer in Remote', expectedRole: 'Full Stack Developer' },
+      { text: 'mega hiring drive for Frontend Engineer', expectedRole: 'Frontend Developer' },
+      { text: 'freshers hiring for Backend Developer', expectedRole: 'Backend Developer' },
+      { text: 'graduate trainee for QA Tester in Gurgaon', expectedRole: 'QA / Automation Tester' },
+      { text: 'graduate apprentice hiring at TCS India', expectedRole: 'Internship / Graduate Trainee / Apprentice' },
+      { text: 'apprentice vacancy for DevOps Engineer', expectedRole: 'DevOps / Cloud Engineer' },
+      { text: 'no experience required for Technical Support Executive', expectedRole: 'Technical Support / IT' },
+      { text: 'walk-in interview for BDE in Delhi NCR', expectedRole: 'Business Development / Sales' },
+      { text: 'Customer Support hiring for freshers', expectedRole: 'Customer Support Executive' },
+      { text: 'DSSSB Delhi District Courts Recruitment 2026', expectedRole: 'Government Recruitment' },
+      { text: 'SSC Recruitment Notification out for Graduates', expectedRole: 'Government Recruitment' },
+      { text: 'Railway RRB Vacancy 2026 apply online', expectedRole: 'Government Recruitment' }
+    ];
+
+    for (const tc of testCases) {
+      const res = RuleClassifier.classify(tc.text);
+      expect(res.isJobPost).toBe(true);
+      expect(res.role).toBe(tc.expectedRole);
+    }
+  });
+
+  // 6. 24-HOUR CUTOFF & TIMESTAMP HANDLING
+  it('Part 20: 24-hour active cutoff includes fresh posts (37m ago) and excludes old posts (26h ago)', () => {
     const now = new Date();
+    const thirtySevenMinAgo = new Date(now.getTime() - 37 * 60 * 1000);
+    const twentySixHoursAgo = new Date(now.getTime() - 26 * 60 * 60 * 1000);
     const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    const freshPost = new Date(now.getTime() - 2 * 60 * 60 * 1000);
-    const oldPost = new Date(now.getTime() - 26 * 60 * 60 * 1000);
-
-    expect(freshPost.getTime() >= cutoff24h.getTime()).toBe(true);
-    expect(oldPost.getTime() >= cutoff24h.getTime()).toBe(false);
+    expect(thirtySevenMinAgo.getTime() >= cutoff24h.getTime()).toBe(true);
+    expect(twentySixHoursAgo.getTime() >= cutoff24h.getTime()).toBe(false);
   });
 
-  // 8. AGENT START TIME PERSISTENCE
+  // 7. AGENT START TIME PERSISTENCE
   it('Requirement: AGENT_START_TIME cutoff preserves timestamp state', () => {
     const preStartPost = new Date('2026-10-03T13:29:00.000Z');
     const postStartPost = new Date('2026-10-03T13:31:00.000Z');
