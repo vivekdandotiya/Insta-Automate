@@ -26,31 +26,29 @@ app.use('/api/alerts', alertsRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/logs', logsRoutes);
 
-// Health check endpoint
+// Health check endpoints (Requirement 17 & 24)
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Instagram Job Alert Agent', timestamp: new Date() });
+  res.json({ status: 'ok', service: 'Instagram Job Search Engine', timestamp: new Date() });
 });
 
 async function bootstrap() {
   logger.info('=====================================================');
-  logger.info('   BOOTSTRAPPING INSTAGRAM JOB ALERT AGENT');
+  logger.info('   BOOTSTRAPPING INSTAGRAM JOB SEARCH ENGINE');
   logger.info('=====================================================');
 
   // 1. Database Connection
   await connectDb();
 
-  // 2. Initialize Agent State & AGENT_START_TIME (Requirements 3, 4, 5)
+  // 2. Initialize Agent State & AGENT_START_TIME (Preserves start time)
   const agentState = await AgentStateService.getOrCreateAgentState();
   logger.info(`[AGENT ENGINE] Status: ${agentState.status}`);
+  logger.info(`[AGENT ENGINE] Manual scan ready. Automatic 2-hour cron loop disabled.`);
 
-  // 3. Start Background Scheduler Loop
-  if (agentState.status === 'RUNNING') {
-    SchedulerService.startScheduler();
-  } else {
-    logger.warn(`[AGENT ENGINE] Scheduler not started because agent status is ${agentState.status}`);
-  }
-
-  // 4. Start HTTP Server
+  // 3. Start HTTP Server
   app.listen(config.port, () => {
     logger.info(`[HTTP SERVER] Running on port ${config.port} (${config.nodeEnv})`);
   });

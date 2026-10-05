@@ -40,6 +40,8 @@ model ProcessedPost {
   confidence        Float     @default(0.0)
   content_hash      String
   processing_status String    @default("PROCESSED")
+  user_status       String    @default("NEW")
+  expires_at        DateTime?
   error_message     String?
   job_alert         JobAlert?
 }

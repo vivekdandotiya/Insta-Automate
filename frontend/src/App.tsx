@@ -3,7 +3,8 @@ import {
   Play, Pause, RefreshCw, AlertTriangle, Instagram, 
   Send, Filter, Activity, Terminal, ShieldAlert, 
   ExternalLink, Calendar, Search, MapPin, Briefcase, 
-  Building, CheckCircle2, ChevronLeft, ChevronRight, Zap, ArrowUpDown, Clock, Layers
+  Building, CheckCircle2, ChevronLeft, ChevronRight, Zap, ArrowUpDown, Clock, Layers,
+  CheckSquare, BookmarkCheck, Sparkles, CheckCircle, Info
 } from 'lucide-react';
 import { api } from './api';
 import { JobDetailModal } from './components/JobDetailModal';
@@ -12,7 +13,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'sources' | 'filters' | 'logs'>('dashboard');
   
   // Dashboard & Jobs State
-  const [selectedDate, setSelectedDate] = useState<string>('today');
+  const [selectedDate, setSelectedDate] = useState<string>('active24h');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
@@ -21,6 +22,7 @@ export default function App() {
   const [filterEmploymentType, setFilterEmploymentType] = useState('');
   const [filterRelevance, setFilterRelevance] = useState('');
   const [filterSource, setFilterSource] = useState('');
+  const [filterUserStatus, setFilterUserStatus] = useState('');
   const [sortOption, setSortOption] = useState('newest_posted');
 
   // Pagination State
@@ -30,7 +32,7 @@ export default function App() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [pagination, setPagination] = useState<any>({ page: 1, limit: 20, total: 0, totalPages: 1 });
   const [daySummary, setDaySummary] = useState<any>({ total: 0, highRelevance: 0, mediumRelevance: 0, lowRelevance: 0 });
-  const [dateLabel, setDateLabel] = useState<string>('');
+  const [dateLabel, setDateLabel] = useState<string>('Last 24 Hours');
   
   // Stats & Health
   const [stats, setStats] = useState<any>(null);
@@ -39,9 +41,11 @@ export default function App() {
   const [filters, setFilters] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
   
-  // UI Controls
+  // UI & Scan Controls (Requirements 1, 9, 15, 20)
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string>('');
+  const [scanResult, setScanResult] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   // Fetch Jobs and Stats
@@ -57,6 +61,7 @@ export default function App() {
         employmentType: filterEmploymentType,
         relevance: filterRelevance,
         source: filterSource,
+        status: filterUserStatus,
         sort: sortOption,
         page,
         limit: 20
@@ -92,27 +97,46 @@ export default function App() {
 
   useEffect(() => {
     fetchJobsData();
-  }, [selectedDate, searchQuery, filterRole, filterLocation, filterExperience, filterWorkMode, filterEmploymentType, filterRelevance, filterSource, sortOption, page]);
+  }, [selectedDate, searchQuery, filterRole, filterLocation, filterExperience, filterWorkMode, filterEmploymentType, filterRelevance, filterSource, filterUserStatus, sortOption, page]);
 
-  // Auto-polling every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchJobsData();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [selectedDate, searchQuery, filterRole, filterLocation, filterExperience, filterWorkMode, filterEmploymentType, filterRelevance, filterSource, sortOption, page]);
-
-  // Trigger Manual Scan ("SCAN NOW")
+  // Trigger Manual Scan ("SCAN JOBS") with cold-start tolerance and status progression
   const handleManualScan = async () => {
     if (isScanning) return;
     setIsScanning(true);
+    setScanResult(null);
+    setScanMessage('Waking scanner...');
+
+    const messageTimer = setTimeout(() => {
+      setScanMessage('Scanning 69 Instagram job sources...');
+    }, 3000);
+
     try {
-      await api.post('/api/jobs/scan');
-      await fetchJobsData();
+      const res = await api.post('/api/jobs/scan', {}, { timeout: 180000 });
+      clearTimeout(messageTimer);
+      if (res.data.success) {
+        setScanResult(res.data.data);
+        await fetchJobsData();
+      } else {
+        alert(res.data.error || 'Scan failed');
+      }
     } catch (e: any) {
-      alert(e.response?.data?.error || 'Failed to trigger scan cycle');
+      clearTimeout(messageTimer);
+      alert(e.response?.data?.error || e.message || 'Failed to trigger scan cycle');
     } finally {
       setIsScanning(false);
+      setScanMessage('');
+    }
+  };
+
+  const handleUpdateJobStatus = async (jobId: string, newStatus: string) => {
+    try {
+      await api.patch(`/api/jobs/${jobId}/status`, { status: newStatus });
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, userStatus: newStatus } : j));
+      if (selectedJob && selectedJob.id === jobId) {
+        setSelectedJob((prev: any) => ({ ...prev, userStatus: newStatus }));
+      }
+    } catch (err) {
+      console.error('Failed to update job status:', err);
     }
   };
 
@@ -125,15 +149,25 @@ export default function App() {
     setFilterEmploymentType('');
     setFilterRelevance('');
     setFilterSource('');
+    setFilterUserStatus('');
     setSortOption('newest_posted');
-    setSelectedDate('today');
+    setSelectedDate('active24h');
     setPage(1);
   };
+
+  const getStatusBadge = () => {
+    if (isScanning) return { label: 'SCANNING', color: 'bg-amber-500 animate-pulse text-amber-950 font-bold' };
+    if (stats?.agentStatus === 'ERROR') return { label: 'ERROR', color: 'bg-rose-500 text-white font-bold' };
+    if (scanResult) return { label: 'COMPLETED', color: 'bg-emerald-500 text-emerald-950 font-bold' };
+    return { label: 'READY', color: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' };
+  };
+
+  const statusBadge = getStatusBadge();
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-600 selection:text-white pb-12">
       
-      {/* HEADER BAR */}
+      {/* HEADER BAR (Requirements 9 & 15) */}
       <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md px-4 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/20">
@@ -141,51 +175,53 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-              Insta-Automate
-              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-semibold border border-blue-500/20">
-                Job Alert Dashboard
+              Instagram Job Finder
+              <span className={`text-[10px] px-2.5 py-0.5 rounded-full uppercase tracking-wider ${statusBadge.color}`}>
+                {statusBadge.label}
               </span>
             </h1>
-            <p className="text-xs text-slate-400">Automated Public Instagram Monitoring Engine</p>
+            <p className="text-xs text-slate-400">Daily Public Instagram Job Search Dashboard • 69 Monitored Sources</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Agent Health Status Badge */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs font-medium">
-            <span className={`w-2.5 h-2.5 rounded-full ${
-              stats?.agentStatus === 'RUNNING' ? 'bg-emerald-500 animate-pulse' :
-              stats?.agentStatus === 'PAUSED' ? 'bg-amber-500' : 'bg-rose-500'
-            }`} />
-            <span className="text-slate-300">
-              Agent {stats?.agentStatus === 'RUNNING' ? 'Healthy' : stats?.agentStatus || 'Ready'}
-            </span>
-          </div>
-
-          {/* Last Successful Check */}
+          {/* Last Scan Time */}
           <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400">
             <Clock className="w-3.5 h-3.5 text-blue-400" />
-            <span>Last Check:</span>
+            <span>Last Scan:</span>
             <span className="text-slate-200 font-semibold">
-              {stats?.lastSuccessfulCheckFormatted || 'Loading...'}
+              {stats?.lastSuccessfulCheckFormatted || 'Never'}
             </span>
           </div>
 
-          {/* SCAN NOW Button */}
+          {/* SCAN JOBS Primary Button (Requirement 1, 9, 15) */}
           <button
             onClick={handleManualScan}
             disabled={isScanning}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white transition shadow-lg ${
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white transition shadow-lg ${
               isScanning 
-                ? 'bg-slate-700 cursor-not-allowed opacity-75' 
+                ? 'bg-amber-600 cursor-not-allowed opacity-90' 
                 : 'bg-blue-600 hover:bg-blue-500 active:scale-95 shadow-blue-600/30'
             }`}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
-            {isScanning ? 'SCANNING INSTAGRAM...' : '🚀 SCAN NOW'}
+            <RefreshCw className={`w-4 h-4 ${isScanning ? 'animate-spin' : ''}`} />
+            {isScanning ? (scanMessage || 'SCANNING INSTAGRAM...') : '🔍 SCAN JOBS'}
           </button>
         </div>
       </header>
+
+      {/* SCAN RESULTS BANNER / MODAL SUMMARY */}
+      {scanResult && (
+        <div className="bg-blue-950/80 border-b border-blue-800 px-4 lg:px-8 py-3 flex items-center justify-between gap-4 text-xs">
+          <div className="flex items-center gap-3 text-blue-200">
+            <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>
+              <strong>SCAN COMPLETE:</strong> {scanResult.jobsFound ?? scanResult.processed} new qualifying jobs found • {scanResult.duplicates} duplicates ignored • {scanResult.ignoredOld} older than 24h • {scanResult.errors} errors in {Math.round(scanResult.durationMs / 1000)}s
+            </span>
+          </div>
+          <button onClick={() => setScanResult(null)} className="text-blue-400 hover:text-white font-bold">✕</button>
+        </div>
+      )}
 
       {/* NAVIGATION TABS */}
       <div className="px-4 lg:px-8 pt-4 pb-2 border-b border-slate-800/50 bg-slate-900/40 flex gap-2 overflow-x-auto">
@@ -197,7 +233,7 @@ export default function App() {
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
           }`}
         >
-          <Layers className="w-4 h-4" /> Job Dashboard
+          <Layers className="w-4 h-4" /> Daily Job Dashboard
         </button>
 
         <button
@@ -208,7 +244,7 @@ export default function App() {
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
           }`}
         >
-          <Instagram className="w-4 h-4 text-pink-400" /> Monitored Sources ({stats?.monitoredAccounts || 69})
+          <Instagram className="w-4 h-4 text-pink-400" /> Monitored Accounts ({stats?.monitoredAccounts || 69})
         </button>
 
         <button
@@ -219,7 +255,7 @@ export default function App() {
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
           }`}
         >
-          <Filter className="w-4 h-4 text-amber-400" /> Preferences
+          <Filter className="w-4 h-4 text-amber-400" /> Search Filters
         </button>
 
         <button
@@ -238,459 +274,389 @@ export default function App() {
         
         {activeTab === 'dashboard' && (
           <>
-            {/* STATS OVERVIEW CARDS */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* STATS OVERVIEW CARDS (Requirement 9) */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
-                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-1">Today's Jobs</span>
-                <span className="text-2xl font-black text-white">{stats?.todaysJobsCount ?? 0}</span>
-                <span className="text-[10px] text-emerald-400 mt-1 font-medium">Calendar IST</span>
-              </div>
-
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
-                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-1">New Jobs (24h)</span>
-                <span className="text-2xl font-black text-blue-400">{stats?.newJobsCount ?? 0}</span>
-                <span className="text-[10px] text-blue-400 mt-1 font-medium">Recently Detected</span>
+                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-1">Active Jobs (24h)</span>
+                <span className="text-2xl font-black text-white">{stats?.newJobsCount ?? 0}</span>
+                <span className="text-[10px] text-emerald-400 mt-1 font-medium">Last 24 Hours IST</span>
               </div>
 
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
                 <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-1">High Relevance</span>
                 <span className="text-2xl font-black text-emerald-400">{stats?.highRelevanceCount ?? 0}</span>
-                <span className="text-[10px] text-emerald-400 mt-1 font-medium">Top Priority Matches</span>
+                <span className="text-[10px] text-slate-500 mt-1 font-medium">Top Match Quality</span>
               </div>
 
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
                 <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-1">Monitored Accounts</span>
-                <span className="text-2xl font-black text-pink-400">{stats?.monitoredAccounts ?? 69}</span>
-                <span className="text-[10px] text-pink-400 mt-1 font-medium">Active Instagram Feeds</span>
+                <span className="text-2xl font-black text-sky-400">{stats?.monitoredAccounts ?? 69}</span>
+                <span className="text-[10px] text-slate-500 mt-1 font-medium">Public Instagram Sources</span>
               </div>
 
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
-                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-1">Total Scanned</span>
-                <span className="text-2xl font-black text-slate-200">{stats?.totalPostsScanned ?? 0}</span>
-                <span className="text-[10px] text-slate-400 mt-1 font-medium">Processed Posts</span>
+                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-1">Total DB Posts</span>
+                <span className="text-2xl font-black text-indigo-400">{stats?.totalPostsScanned ?? 0}</span>
+                <span className="text-[10px] text-slate-500 mt-1 font-medium">Historical Deduplication</span>
               </div>
 
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
-                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-1">Timezone</span>
-                <span className="text-sm font-bold text-indigo-400">Asia/Kolkata</span>
-                <span className="text-[10px] text-indigo-400 mt-1 font-medium">IST Day Grouping</span>
-              </div>
-            </div>
-
-            {/* DATE SELECTION & DAY SUMMARY */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 lg:p-6 shadow-md space-y-4">
-              
-              <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                    <Calendar className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                      📅 {selectedDate === 'today' ? 'TODAY' : dateLabel}
-                      <span className="text-xs font-normal text-slate-400">({dateLabel})</span>
-                    </h2>
-                    <p className="text-xs text-slate-400">
-                      Showing {daySummary.total} job post{daySummary.total === 1 ? '' : 's'} recorded on this date
-                    </p>
-                  </div>
-                </div>
-
-                {/* DATE NAVIGATION & PICKER */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={() => { setSelectedDate('today'); setPage(1); }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                      selectedDate === 'today' 
-                        ? 'bg-blue-600 text-white' 
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    Today
-                  </button>
-
-                  <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
-                    <input
-                      type="date"
-                      value={selectedDate === 'today' ? '' : selectedDate}
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          setSelectedDate(e.target.value);
-                          setPage(1);
-                        }
-                      }}
-                      className="bg-transparent text-xs text-slate-200 px-2 py-1 outline-none font-medium"
-                    />
-                  </div>
-
-                  {history.length > 0 && (
-                    <select
-                      value={selectedDate}
-                      onChange={(e) => { setSelectedDate(e.target.value); setPage(1); }}
-                      className="bg-slate-950 border border-slate-800 text-xs text-slate-200 px-3 py-1.5 rounded-xl outline-none font-medium"
-                    >
-                      <option value="today">Select Date from History...</option>
-                      {history.map((h) => (
-                        <option key={h.date} value={h.date}>
-                          {h.label} ({h.count} jobs)
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
-
-              {/* DAY SUMMARY BADGES */}
-              <div className="flex flex-wrap items-center gap-3 text-xs font-medium">
-                <span className="px-3 py-1 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
-                  Total Jobs: <strong className="text-white ml-1">{daySummary.total}</strong>
+              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between shadow-sm col-span-2 sm:col-span-1">
+                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-1">Next Action</span>
+                <span className="text-lg font-bold text-amber-400 flex items-center gap-1">
+                  <RefreshCw className="w-4 h-4" /> Manual Scan
                 </span>
-                <span className="px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                  High Relevance: <strong className="ml-1">{daySummary.highRelevance}</strong>
-                </span>
-                <span className="px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                  Medium Relevance: <strong className="ml-1">{daySummary.mediumRelevance}</strong>
-                </span>
-                <span className="px-3 py-1 rounded-xl bg-slate-800 text-slate-400">
-                  Low Relevance: <strong className="ml-1">{daySummary.lowRelevance}</strong>
-                </span>
+                <span className="text-[10px] text-slate-400 mt-1 font-medium">Click 🔍 SCAN JOBS</span>
               </div>
             </div>
 
-            {/* SEARCH & FILTERS BAR */}
-            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-md space-y-4">
-              <div className="flex flex-col md:flex-row gap-3">
-                {/* Search Input */}
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            {/* SEARCH AND FILTER BAR (Requirement 14) */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-4 shadow-md">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Search Box */}
+                <div className="relative flex-1 min-w-[240px]">
+                  <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Search jobs by role, company, location, caption, or username..."
+                    placeholder="Search jobs by role, company, location, skills..."
                     value={searchQuery}
                     onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
+                    className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
                   />
                 </div>
 
-                {/* Sort Option */}
-                <div className="flex items-center gap-2">
-                  <ArrowUpDown className="w-4 h-4 text-slate-400 hidden md:block" />
-                  <select
-                    value={sortOption}
-                    onChange={(e) => { setSortOption(e.target.value); setPage(1); }}
-                    className="px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 outline-none font-medium cursor-pointer"
+                {/* Date Window Toggle (Requirements 5 & 10) */}
+                <div className="flex items-center bg-slate-950 border border-slate-800 p-1 rounded-xl text-xs">
+                  <button
+                    onClick={() => { setSelectedDate('active24h'); setPage(1); }}
+                    className={`px-3 py-1 rounded-lg font-semibold transition ${
+                      selectedDate === 'active24h' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
                   >
-                    <option value="newest_posted">Sort: Newest Posted</option>
-                    <option value="oldest_posted">Sort: Oldest Posted</option>
-                    <option value="newest_detected">Sort: Newest Detected</option>
-                    <option value="highest_relevance">Sort: Highest Relevance</option>
-                  </select>
+                    LAST 24 HOURS
+                  </button>
+                  <button
+                    onClick={() => { setSelectedDate('today'); setPage(1); }}
+                    className={`px-3 py-1 rounded-lg font-semibold transition ${
+                      selectedDate === 'today' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    TODAY
+                  </button>
+                  <button
+                    onClick={() => { setSelectedDate('all'); setPage(1); }}
+                    className={`px-3 py-1 rounded-lg font-semibold transition ${
+                      selectedDate === 'all' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    ALL HISTORY
+                  </button>
                 </div>
+
+                {/* Sort dropdown */}
+                <select
+                  value={sortOption}
+                  onChange={(e) => { setSortOption(e.target.value); setPage(1); }}
+                  className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="newest_posted">Sort: Newest Posted</option>
+                  <option value="newest_detected">Sort: Newest Detected</option>
+                  <option value="highest_relevance">Sort: Highest Relevance</option>
+                  <option value="oldest_posted">Sort: Oldest Posted</option>
+                </select>
+
+                <button
+                  onClick={resetAllFilters}
+                  className="px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                >
+                  Reset
+                </button>
               </div>
 
-              {/* Filter Selectors Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-2 border-t border-slate-800/60">
-                {/* Location */}
-                <select
-                  value={filterLocation}
-                  onChange={(e) => { setFilterLocation(e.target.value); setPage(1); }}
-                  className="px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 outline-none"
-                >
-                  <option value="">All Locations</option>
-                  <option value="Delhi">Delhi / New Delhi</option>
-                  <option value="Noida">Noida / Greater Noida</option>
-                  <option value="Gurgaon">Gurgaon / Gurugram</option>
-                  <option value="Ghaziabad">Ghaziabad</option>
-                  <option value="Faridabad">Faridabad</option>
-                  <option value="Remote">Remote / WFH</option>
-                  <option value="India">Pan India</option>
-                </select>
-
-                {/* Role */}
-                <select
+              {/* Filter Dropdowns */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2 border-t border-slate-800/60 text-xs">
+                <input
+                  type="text"
+                  placeholder="Role (e.g. Full Stack)"
                   value={filterRole}
                   onChange={(e) => { setFilterRole(e.target.value); setPage(1); }}
-                  className="px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 outline-none"
-                >
-                  <option value="">All Roles</option>
-                  <option value="Software Engineer">Software Engineer</option>
-                  <option value="Full Stack">Full Stack Developer</option>
-                  <option value="Frontend">Frontend Developer</option>
-                  <option value="Backend">Backend Developer</option>
-                  <option value="QA">QA / Tester</option>
-                  <option value="BDE">BDE / Business Dev</option>
-                  <option value="Customer Support">Customer Support</option>
-                  <option value="UI/UX">UI/UX Designer</option>
-                  <option value="Internship">Internships</option>
-                </select>
+                  className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-300 placeholder-slate-500"
+                />
 
-                {/* Relevance */}
+                <input
+                  type="text"
+                  placeholder="Location (Noida, Remote)"
+                  value={filterLocation}
+                  onChange={(e) => { setFilterLocation(e.target.value); setPage(1); }}
+                  className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-300 placeholder-slate-500"
+                />
+
                 <select
                   value={filterRelevance}
                   onChange={(e) => { setFilterRelevance(e.target.value); setPage(1); }}
-                  className="px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 outline-none"
+                  className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-300"
                 >
-                  <option value="">All Relevance</option>
-                  <option value="HIGH">High Relevance</option>
-                  <option value="MEDIUM">Medium Relevance</option>
-                  <option value="LOW">Low Relevance</option>
+                  <option value="">Relevance: All</option>
+                  <option value="HIGH">HIGH Only</option>
+                  <option value="MEDIUM">MEDIUM Only</option>
+                  <option value="LOW">LOW Only</option>
                 </select>
 
-                {/* Work Mode */}
+                <select
+                  value={filterUserStatus}
+                  onChange={(e) => { setFilterUserStatus(e.target.value); setPage(1); }}
+                  className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-300"
+                >
+                  <option value="">Status: All</option>
+                  <option value="NEW">NEW</option>
+                  <option value="APPLIED">APPLIED</option>
+                  <option value="REGISTERED">REGISTERED</option>
+                  <option value="VIEWED">VIEWED</option>
+                </select>
+
+                <input
+                  type="text"
+                  placeholder="Source (@account)"
+                  value={filterSource}
+                  onChange={(e) => { setFilterSource(e.target.value); setPage(1); }}
+                  className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-300 placeholder-slate-500"
+                />
+
                 <select
                   value={filterWorkMode}
                   onChange={(e) => { setFilterWorkMode(e.target.value); setPage(1); }}
-                  className="px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 outline-none"
+                  className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-300"
                 >
-                  <option value="">All Work Modes</option>
+                  <option value="">Work Mode: All</option>
                   <option value="Remote">Remote</option>
                   <option value="Hybrid">Hybrid</option>
                   <option value="On-site">On-site</option>
                 </select>
-
-                {/* Employment Type */}
-                <select
-                  value={filterEmploymentType}
-                  onChange={(e) => { setFilterEmploymentType(e.target.value); setPage(1); }}
-                  className="px-2.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300 outline-none"
-                >
-                  <option value="">All Types</option>
-                  <option value="Full Time">Full Time</option>
-                  <option value="Internship">Internship</option>
-                </select>
-
-                {/* Reset Button */}
-                <button
-                  onClick={resetAllFilters}
-                  className="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 font-medium transition"
-                >
-                  Clear Filters
-                </button>
               </div>
             </div>
 
-            {/* JOBS GRID FEED */}
-            {loading ? (
-              <div className="py-12 text-center text-slate-400 space-y-3">
-                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-blue-400" />
-                <p className="text-xs">Loading job alerts...</p>
-              </div>
-            ) : jobs.length === 0 ? (
-              <div className="py-16 text-center bg-slate-900/60 border border-slate-800/80 rounded-2xl space-y-3">
-                <span className="text-4xl block">📭</span>
-                <h3 className="text-base font-bold text-white">No Job Alerts Found</h3>
-                <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  No job posts matched your search filters on {selectedDate === 'today' ? 'today' : selectedDate}. The agent will automatically scan again on schedule.
-                </p>
-                <button
-                  onClick={resetAllFilters}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-500 transition"
-                >
-                  Reset Search & Filters
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {jobs.map((job) => (
-                  <div 
-                    key={job.id} 
-                    className="bg-slate-900 border border-slate-800/90 rounded-2xl p-5 hover:border-slate-700 transition shadow-md flex flex-col justify-between space-y-4"
-                  >
-                    <div className="space-y-3">
-                      {/* Top Badges & Account */}
-                      <div className="flex items-center justify-between gap-2">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
-                          job.relevance === 'HIGH' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                          job.relevance === 'MEDIUM' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
-                          'bg-slate-800 text-slate-400 border border-slate-700'
-                        }`}>
-                          {job.relevance} Relevance
-                        </span>
-
-                        <span className="text-xs text-sky-400 font-medium flex items-center gap-1">
-                          <Instagram className="w-3.5 h-3.5 text-pink-400" />
-                          @{job.sourceUsername}
-                        </span>
-                      </div>
-
-                      {/* Job Title & Company */}
-                      <div>
-                        <h3 className="text-base font-bold text-white leading-snug line-clamp-2">{job.role}</h3>
-                        <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-1 font-medium">
-                          <Building className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                          {job.company}
-                        </p>
-                      </div>
-
-                      {/* Attributes */}
-                      <div className="grid grid-cols-2 gap-2 pt-2 text-xs border-t border-slate-800/60">
-                        <div className="flex items-center gap-1.5 text-slate-300">
-                          <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          <span className="truncate">{job.location}</span>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 text-slate-300">
-                          <Briefcase className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span className="truncate">{job.experience}</span>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 text-slate-300">
-                          <span className="text-emerald-400 font-bold shrink-0">💰</span>
-                          <span className="truncate">{job.salary}</span>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 text-slate-300">
-                          <Building className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                          <span className="truncate">{job.workMode}</span>
-                        </div>
-                      </div>
-
-                      {/* Timestamps */}
-                      <div className="pt-2 text-[11px] text-slate-400 space-y-0.5 border-t border-slate-800/40">
-                        <div className="flex justify-between">
-                          <span>Posted:</span>
-                          <span className="text-slate-300 font-medium">{job.postedAtFormatted}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Detected:</span>
-                          <span className="text-slate-300 font-medium">{job.detectedAtFormatted}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Card Footer Actions */}
-                    <div className="pt-3 border-t border-slate-800 flex items-center gap-2">
-                      <button
-                        onClick={() => setSelectedJob(job)}
-                        className="flex-1 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-white font-medium transition text-center"
-                      >
-                        View Details
-                      </button>
-
-                      <a
-                        href={job.instagramUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-pink-400 transition"
-                        title="View on Instagram"
-                      >
-                        <Instagram className="w-4 h-4" />
-                      </a>
-
-                      {job.applyUrl && job.applyUrl !== 'Not specified' && job.applyUrl.startsWith('http') && (
-                        <a
-                          href={job.applyUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition"
-                          title="Apply Directly"
-                        >
-                          Apply
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* PAGINATION FOOTER */}
-            {pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between pt-4 border-t border-slate-800">
-                <span className="text-xs text-slate-400">
-                  Page {pagination.page} of {pagination.totalPages} ({pagination.total} total jobs)
+            {/* JOB LIST / CARDS */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span className="font-semibold text-slate-200">
+                  Showing {jobs.length} jobs ({dateLabel})
                 </span>
-                <div className="flex gap-2">
+                <span>Page {pagination.page} of {pagination.totalPages} ({pagination.total} Total)</span>
+              </div>
+
+              {loading ? (
+                <div className="text-center py-16 text-slate-400 text-sm">
+                  Loading jobs...
+                </div>
+              ) : jobs.length === 0 ? (
+                <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+                  <Briefcase className="w-8 h-8 text-slate-600 mx-auto" />
+                  <h3 className="text-base font-semibold text-white">No job alerts match your filters</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Click <strong>🔍 SCAN JOBS</strong> in the header to run a new manual Instagram check cycle across all 69 monitored accounts.
+                  </p>
                   <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="p-2 rounded-xl bg-slate-800 text-white disabled:opacity-50 text-xs"
+                    onClick={handleManualScan}
+                    disabled={isScanning}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold shadow-lg"
                   >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setPage(p => Math.min(pagination.totalPages, p + 1))}
-                    disabled={page === pagination.totalPages}
-                    className="p-2 rounded-xl bg-slate-800 text-white disabled:opacity-50 text-xs"
-                  >
-                    <ChevronRight className="w-4 h-4" />
+                    <RefreshCw className="w-3.5 h-3.5" /> Run Scan Now
                   </button>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {jobs.map((job) => (
+                    <div
+                      key={job.id}
+                      className="bg-slate-900 border border-slate-800/90 rounded-2xl p-5 hover:border-slate-700 transition flex flex-col justify-between gap-4 shadow-sm"
+                    >
+                      <div className="space-y-3">
+                        {/* Top Metadata */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                              job.relevance === 'HIGH' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                              job.relevance === 'MEDIUM' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                              'bg-slate-800 text-slate-400 border border-slate-700'
+                            }`}>
+                              {job.relevance}
+                            </span>
+
+                            {job.userStatus && job.userStatus !== 'NEW' && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                                {job.userStatus}
+                              </span>
+                            )}
+                          </div>
+
+                          <span className="text-xs text-sky-400 font-medium flex items-center gap-1">
+                            <Instagram className="w-3 h-3 text-pink-400" />
+                            {job.sourceAccount}
+                          </span>
+                        </div>
+
+                        {/* Title & Company */}
+                        <div>
+                          <h3 
+                            onClick={() => setSelectedJob(job)}
+                            className="text-base font-bold text-white hover:text-blue-400 cursor-pointer transition line-clamp-1"
+                          >
+                            {job.role}
+                          </h3>
+                          <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                            <Building className="w-3.5 h-3.5 text-sky-400" />
+                            {job.company}
+                          </p>
+                        </div>
+
+                        {/* Attribute Grid */}
+                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-300 pt-1">
+                          <div className="flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            <span className="truncate">{job.location}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Briefcase className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span className="truncate">{job.experience}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Building className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                            <span className="truncate">{job.workMode}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="truncate">{job.postedAtFormatted}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Footer Actions */}
+                      <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleUpdateJobStatus(job.id, 'APPLIED')}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
+                              job.userStatus === 'APPLIED' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {job.userStatus === 'APPLIED' ? 'Applied ✓' : 'Mark Applied'}
+                          </button>
+
+                          <button
+                            onClick={() => handleUpdateJobStatus(job.id, 'REGISTERED')}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
+                              job.userStatus === 'REGISTERED' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            {job.userStatus === 'REGISTERED' ? 'Registered ✓' : 'Registered'}
+                          </button>
+                        </div>
+
+                        <button
+                          onClick={() => setSelectedJob(job)}
+                          className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium transition"
+                        >
+                          Details
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* PAGINATION */}
+              {pagination.totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 text-xs text-slate-400">
+                  <button
+                    disabled={page <= 1}
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    className="px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 disabled:opacity-50 hover:text-white"
+                  >
+                    Previous
+                  </button>
+
+                  <span>Page {page} of {pagination.totalPages}</span>
+
+                  <button
+                    disabled={page >= pagination.totalPages}
+                    onClick={() => setPage(p => Math.min(pagination.totalPages, p + 1))}
+                    className="px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 disabled:opacity-50 hover:text-white"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
           </>
         )}
 
-        {/* SOURCES TAB (69 Monitored Accounts) */}
+        {/* SOURCES TAB */}
         {activeTab === 'sources' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Instagram className="w-5 h-5 text-pink-400" /> Monitored Instagram Sources ({sources.length})
-                </h2>
-                <p className="text-xs text-slate-400">Centralized list of public accounts monitored every 2 hours</p>
-              </div>
-            </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Instagram className="w-5 h-5 text-pink-400" /> Monitored Instagram Accounts ({sources.length})
+            </h2>
+            <p className="text-xs text-slate-400">
+              Centralized accounts checked during manual <code>POST /api/jobs/scan</code> search cycles.
+            </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 pt-2">
               {sources.map((s) => (
-                <div key={s.id || s.username} className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
-                  <div>
-                    <a 
-                      href={s.profile_url || `https://www.instagram.com/${s.username.replace('@', '')}/`} 
-                      target="_blank" 
-                      rel="noreferrer"
-                      className="text-sm font-bold text-white hover:text-sky-400 transition flex items-center gap-1.5"
-                    >
-                      <Instagram className="w-3.5 h-3.5 text-pink-400" />
-                      {s.username}
-                    </a>
-                    <span className="text-[10px] text-slate-500 block mt-0.5">Priority: {s.priority || 'NORMAL'}</span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    Active
-                  </span>
+                <div key={s.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+                  <span className="font-semibold text-sky-400">{s.username}</span>
+                  <span className={`w-2 h-2 rounded-full ${s.enabled ? 'bg-emerald-500' : 'bg-slate-600'}`} />
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {/* PREFERENCES TAB */}
+        {/* FILTERS TAB */}
         {activeTab === 'filters' && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Filter className="w-5 h-5 text-amber-400" /> Job Matching Preferences
+              <Filter className="w-5 h-5 text-amber-400" /> Preference Configuration
             </h2>
-            <p className="text-xs text-slate-400">Active roles and location preferences configured for automatic relevance classification</p>
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3 text-xs">
-              <div>
-                <strong className="text-slate-300 block mb-1">Target Roles:</strong>
-                <p className="text-slate-400">{filters?.roles ? JSON.parse(filters.roles).join(', ') : 'Software Developer, Full Stack, Frontend, Backend, QA, BDE, Customer Support, UI/UX, Internships'}</p>
+            <p className="text-xs text-slate-400">
+              User preference settings used to evaluate job post qualification.
+            </p>
+
+            {filters && (
+              <div className="space-y-4 text-xs">
+                <div>
+                  <span className="text-slate-400 block font-semibold mb-1">Target Roles:</span>
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-slate-200">
+                    {filters.roles || 'All Software & Tech Roles'}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-slate-400 block font-semibold mb-1">Target Locations:</span>
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-slate-200">
+                    {filters.locations || 'Delhi NCR, Remote, India'}
+                  </div>
+                </div>
               </div>
-              <div>
-                <strong className="text-slate-300 block mb-1">Target Locations:</strong>
-                <p className="text-slate-400">{filters?.locations ? JSON.parse(filters.locations).join(', ') : 'Delhi, New Delhi, Delhi NCR, Gurugram, Gurgaon, Noida, Greater Noida, Ghaziabad, Faridabad, Remote, India'}</p>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
-        {/* LOGS TAB */}
+        {/* SYSTEM LOGS TAB */}
         {activeTab === 'logs' && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Terminal className="w-5 h-5 text-emerald-400" /> Worker Logs
+              <Terminal className="w-5 h-5 text-emerald-400" /> Recent System Logs
             </h2>
-            <div className="bg-slate-950 p-4 rounded-xl font-mono text-xs text-slate-300 space-y-1 max-h-96 overflow-y-auto border border-slate-800">
+
+            <div className="bg-slate-950 p-4 rounded-xl font-mono text-xs text-slate-300 max-h-96 overflow-y-auto space-y-1 border border-slate-800">
               {logs.length === 0 ? (
-                <p className="text-slate-500">No logs captured yet.</p>
+                <div className="text-slate-500">No system logs recorded yet.</div>
               ) : (
-                logs.map((log: any, idx: number) => (
-                  <div key={idx} className="flex gap-2">
-                    <span className="text-slate-500">[{log.timestamp}]</span>
-                    <span className={log.level === 'ERROR' ? 'text-rose-400' : 'text-slate-300'}>{log.message}</span>
+                logs.map(log => (
+                  <div key={log.id} className="leading-relaxed">
+                    <span className="text-slate-500">[{new Date(log.timestamp).toLocaleTimeString()}]</span>{' '}
+                    <span className={log.level === 'ERROR' ? 'text-rose-400 font-semibold' : 'text-slate-300'}>
+                      {log.message}
+                    </span>
                   </div>
                 ))
               )}
@@ -701,12 +667,11 @@ export default function App() {
       </main>
 
       {/* JOB DETAIL MODAL */}
-      {selectedJob && (
-        <JobDetailModal
-          job={selectedJob}
-          onClose={() => setSelectedJob(null)}
-        />
-      )}
+      <JobDetailModal
+        job={selectedJob}
+        onClose={() => setSelectedJob(null)}
+        onStatusUpdate={handleUpdateJobStatus}
+      />
     </div>
   );
 }

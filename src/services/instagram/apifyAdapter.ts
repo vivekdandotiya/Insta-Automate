@@ -60,7 +60,7 @@ export class ApifyInstagramAdapter implements InstagramAdapter {
               usernames: chunkUsernames,
               directUrls: chunkUrls,
               resultsType: 'posts',
-              resultsLimit: 10,
+              resultsLimit: 5,
               searchType: 'user',
               searchLimit: 1
             },

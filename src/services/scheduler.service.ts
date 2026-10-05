@@ -1,65 +1,73 @@
 import crypto from 'crypto';
 import { prisma } from '../db/client.js';
 import { logger } from '../utils/logger.js';
-import { config } from '../config/index.js';
 import { formatIST, isPostAfterStartTime } from '../utils/date.js';
 import { AgentStateService } from './agentState.service.js';
 import { SourceService } from './source.service.js';
 import { getInstagramAdapter } from './instagram/factory.js';
 import { ClassifierService } from './classifier.service.js';
 import { FilterService } from './filter.service.js';
-import { TelegramService } from './telegram.service.js';
-import { EmailNotificationService } from './email.service.js';
 import { RawInstagramPost } from './instagram/adapter.interface.js';
+
+export interface ScanCycleResult {
+  scanned: number;
+  processed: number;
+  jobsFound: number;
+  duplicates: number;
+  ignoredOld: number;
+  irrelevant: number;
+  errors: number;
+  durationMs: number;
+  notified?: number;
+}
 
 export class SchedulerService {
   private static isRunning: boolean = false;
   private static timerId: NodeJS.Timeout | null = null;
 
   /**
-   * Main single-cycle execution for Scheduled Cron Workers and Manual Run Now requests.
+   * Main single-cycle manual/on-demand execution for Instagram job scans.
    */
-  public static async executeCheckCycle(): Promise<{ 
-    scanned: number; 
-    processed: number; 
-    notified: number; 
-    duplicates: number;
-    errors: number;
-    durationMs: number;
-  }> {
+  public static async executeCheckCycle(): Promise<ScanCycleResult> {
     if (SchedulerService.isRunning) {
       logger.warn('[SCHEDULER] Scan cycle already in progress. Skipping duplicate execution.');
-      return { scanned: 0, processed: 0, notified: 0, duplicates: 0, errors: 0, durationMs: 0 };
+      return {
+        scanned: 0,
+        processed: 0,
+        jobsFound: 0,
+        duplicates: 0,
+        ignoredOld: 0,
+        irrelevant: 0,
+        errors: 0,
+        durationMs: 0
+      };
     }
 
     SchedulerService.isRunning = true;
     const startTimeMs = Date.now();
     let scanned = 0;
     let processed = 0;
-    let notified = 0;
     let duplicates = 0;
+    let ignoredOld = 0;
+    let irrelevant = 0;
     let errors = 0;
 
     try {
-      // 1. Get/Initialize AGENT_START_TIME state (Requirements 3, 4, 5)
+      // 1. Get/Initialize AGENT_START_TIME state (Preserved across runs)
       const agentState = await AgentStateService.getOrCreateAgentState();
 
       if (agentState.status === 'STOPPED') {
         logger.info(`[SCHEDULER] Agent status is STOPPED. Execution skipped.`);
         SchedulerService.isRunning = false;
-        return { scanned, processed, notified, duplicates, errors, durationMs: Date.now() - startTimeMs };
+        return { scanned, processed, jobsFound: 0, duplicates, ignoredOld, irrelevant, errors, durationMs: Date.now() - startTimeMs };
       }
 
-      logger.info(`[SCHEDULED WORKER] Booting execution cycle.`);
-      logger.info(`[SCHEDULED WORKER] AGENT_START_TIME Cutoff: ${formatIST(agentState.agent_start_time)}`);
-      logger.info(`[SCHEDULED WORKER] LAST_SUCCESSFUL_CHECK: ${agentState.last_successful_check ? formatIST(agentState.last_successful_check) : 'None (First Run)'}`);
+      const now = new Date();
+      const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-      // Calculate Downtime Recovery Cutoff Window
-      const recoveryCutoff = agentState.last_successful_check
-        ? new Date(agentState.last_successful_check.getTime() - 10 * 60 * 1000)
-        : agentState.agent_start_time;
-
-      logger.info(`[SCHEDULED WORKER] Effective Recovery Cutoff: ${formatIST(recoveryCutoff)}`);
+      logger.info(`[JOB SEARCH ENGINE] Booting manual scan cycle.`);
+      logger.info(`[JOB SEARCH ENGINE] 24-Hour Active Window Cutoff: ${formatIST(cutoff24h)}`);
+      logger.info(`[JOB SEARCH ENGINE] AGENT_START_TIME Cutoff: ${formatIST(agentState.agent_start_time)}`);
 
       // 2. Synchronize and load active Instagram sources
       await SourceService.syncMonitoredSources();
@@ -72,17 +80,17 @@ export class SchedulerService {
         try {
           fetchedPosts = await adapter.fetchBatchPosts(activeSources.map(s => s.username));
         } catch (batchErr: any) {
-          logger.error(`[SCHEDULED WORKER] Batch fetch failed: ${batchErr.message}`);
+          logger.error(`[JOB SEARCH ENGINE] Batch fetch failed: ${batchErr.message}`);
           errors++;
         }
       } else {
         for (const source of activeSources) {
-          logger.info(`[SCHEDULED WORKER] Fetching feed for source: ${source.username}`);
+          logger.info(`[JOB SEARCH ENGINE] Fetching feed for source: ${source.username}`);
           try {
             const singlePosts = await adapter.fetchLatestPosts(source.username);
             fetchedPosts.push(...singlePosts);
           } catch (fetchErr: any) {
-            logger.error(`[SCHEDULED WORKER] Failed to fetch posts from ${source.username}: ${fetchErr.message}`);
+            logger.error(`[JOB SEARCH ENGINE] Failed to fetch posts from ${source.username}: ${fetchErr.message}`);
             errors++;
           }
         }
@@ -91,43 +99,48 @@ export class SchedulerService {
       for (const post of fetchedPosts) {
         scanned++;
 
-        // 3. Strict Timestamp Cutoff Rule: published_at > AGENT_START_TIME
-        if (!isPostAfterStartTime(post.publishedAt, agentState.agent_start_time)) {
-          logger.info(`[SCHEDULED WORKER] IGNORED (Pre-Start): Post ${post.id} published (${formatIST(post.publishedAt)}) <= AGENT_START_TIME (${formatIST(agentState.agent_start_time)})`);
+        const pubTime = post.publishedAt || new Date();
+
+        // 3. 24-Hour Cutoff & AGENT_START_TIME Rule
+        if (pubTime.getTime() < cutoff24h.getTime() || !isPostAfterStartTime(pubTime, agentState.agent_start_time)) {
+          ignoredOld++;
+          logger.info(`[JOB SEARCH ENGINE] IGNORED (Older than 24h or pre-start): Post ${post.id} published ${formatIST(pubTime)}`);
           continue;
         }
 
-        // Recovery Window Check
-        if (post.publishedAt.getTime() <= recoveryCutoff.getTime() && agentState.last_successful_check) {
-          logger.info(`[SCHEDULED WORKER] IGNORED (Within Previous Checkpoint): Post ${post.id} published (${formatIST(post.publishedAt)}) <= Recovery Cutoff (${formatIST(recoveryCutoff)})`);
-          continue;
-        }
-
-        // 4. Unique DB Deduplication Lock
+        // 4. Primary Duplicate Protection (Instagram Post ID)
         const existingPost = await prisma.processedPost.findUnique({
           where: { instagram_post_id: post.id }
         });
 
         if (existingPost) {
           duplicates++;
-          logger.info(`[SCHEDULED WORKER] DUPLICATE IGNORED: Post ${post.id} already exists in database.`);
+          logger.info(`[JOB SEARCH ENGINE] DUPLICATE IGNORED: Post ${post.id} already exists in database.`);
           continue;
         }
 
-        const contentHash = crypto.createHash('md5').update(`${post.caption}_${post.publishedAt.getTime()}`).digest('hex');
+        const contentHash = crypto.createHash('md5').update(`${post.caption}_${pubTime.getTime()}`).digest('hex');
 
-        // 5. Classification & Extraction
+        // 5. Classification & Relevance Extraction
         let jobResult;
         try {
           jobResult = await ClassifierService.processContent(post.caption, post.mediaUrls);
         } catch (classErr: any) {
-          logger.error(`[SCHEDULED WORKER] Classification error for post ${post.id}: ${classErr.message}`);
+          logger.error(`[JOB SEARCH ENGINE] Classification error for post ${post.id}: ${classErr.message}`);
           errors++;
           continue;
         }
 
+        const filterEvaluation = await FilterService.isMatch(jobResult);
+        const isQualifyingJob = jobResult.isJobPost && filterEvaluation.matches;
+
+        if (!isQualifyingJob) {
+          irrelevant++;
+        }
+
         processed++;
         const detectedAt = new Date();
+        const expiresAt = new Date(pubTime.getTime() + 24 * 60 * 60 * 1000);
 
         // Save ProcessedPost record with atomic uniqueness protection
         let processedRecord;
@@ -138,64 +151,29 @@ export class SchedulerService {
               source_account: post.sourceAccount,
               post_url: post.postUrl,
               post_type: post.postType,
-              published_at: post.publishedAt,
+              published_at: pubTime,
               detected_at: detectedAt,
               processed_at: new Date(),
               classification: jobResult.isJobPost ? 'JOB_POST' : 'NOT_JOB_POST',
               relevance_score: jobResult.relevanceScore,
               confidence: jobResult.confidence,
               content_hash: contentHash,
-              processing_status: 'PROCESSED'
+              processing_status: 'PROCESSED',
+              user_status: 'NEW',
+              expires_at: expiresAt
             }
           });
         } catch (dbErr: any) {
           if (dbErr.code === 'P2002') {
             duplicates++;
-            logger.info(`[SCHEDULED WORKER] Race condition duplicate caught for post ${post.id}`);
+            logger.info(`[JOB SEARCH ENGINE] Race condition duplicate caught for post ${post.id}`);
             continue;
           }
           throw dbErr;
         }
 
-        // 6. User Preference Filter
-        const filterEvaluation = await FilterService.isMatch(jobResult);
-
-        if (jobResult.isJobPost && filterEvaluation.matches) {
-          const notificationPayload = {
-            company: jobResult.company,
-            role: jobResult.role,
-            location: jobResult.location,
-            experience: jobResult.experience,
-            salary: jobResult.salary,
-            workMode: jobResult.workMode,
-            employmentType: jobResult.employmentType,
-            publishedAt: post.publishedAt,
-            detectedAt,
-            relevanceScore: jobResult.relevanceScore,
-            sourceAccount: post.sourceAccount,
-            postUrl: post.postUrl,
-            applicationLink: jobResult.applicationLink
-          };
-
-          // 7a. Send Telegram Alert
-          let telegramSent = false;
-          try {
-            telegramSent = await TelegramService.sendAlert(notificationPayload);
-          } catch (tgErr: any) {
-            logger.error(`[SCHEDULED WORKER] Telegram alert failed for ${post.id}: ${tgErr.message}`);
-          }
-
-          // 7b. Send Email Alert (Independent execution channel)
-          let emailSent = false;
-          try {
-            emailSent = await EmailNotificationService.sendAlert(notificationPayload);
-          } catch (emailErr: any) {
-            logger.error(`[SCHEDULED WORKER] Email alert failed for ${post.id}: ${emailErr.message}`);
-          }
-
-          if (telegramSent || emailSent) notified++;
-
-          // Create JobAlert record with independent status flags
+        // Create JobAlert database record if qualifying job post
+        if (isQualifyingJob) {
           await prisma.jobAlert.create({
             data: {
               processed_post_id: processedRecord.id,
@@ -213,10 +191,10 @@ export class SchedulerService {
               application_link: jobResult.applicationLink,
               contact_information: jobResult.contactInformation,
               reason: filterEvaluation.reason,
-              notification_sent: telegramSent,
-              notification_sent_at: telegramSent ? new Date() : null,
-              email_sent: emailSent,
-              email_sent_at: emailSent ? new Date() : null
+              notification_sent: false,
+              notification_sent_at: null,
+              email_sent: false,
+              email_sent_at: null
             }
           });
         }
@@ -229,42 +207,52 @@ export class SchedulerService {
         data: { last_checked_at: checkTime }
       });
 
-      // 8. Save Successful Checkpoint Timestamp
+      // 6. Save Successful Checkpoint Timestamp
       await AgentStateService.updateLastSuccessfulCheck(new Date());
 
       const durationMs = Date.now() - startTimeMs;
-      logger.info(`[SCHEDULED WORKER] Cycle complete in ${durationMs}ms. Scanned: ${scanned}, Processed: ${processed}, Notified: ${notified}, Duplicates: ${duplicates}, Errors: ${errors}`);
+      logger.info(`[JOB SEARCH ENGINE] Scan complete in ${durationMs}ms. Scanned: ${scanned}, Jobs Found: ${processed - irrelevant}, Duplicates: ${duplicates}, Ignored Old: ${ignoredOld}, Irrelevant: ${irrelevant}, Errors: ${errors}`);
 
-      return { scanned, processed, notified, duplicates, errors, durationMs };
+      return {
+        scanned,
+        processed,
+        jobsFound: processed - irrelevant,
+        duplicates,
+        ignoredOld,
+        irrelevant,
+        errors,
+        durationMs,
+        notified: 0
+      };
 
     } catch (err: any) {
-      logger.error(`[SCHEDULED WORKER] Fatal error in check cycle: ${err.message}`);
+      logger.error(`[JOB SEARCH ENGINE] Fatal error in scan cycle: ${err.message}`);
       await AgentStateService.setStatus('ERROR', err.message);
-      return { scanned, processed, notified, duplicates, errors: errors + 1, durationMs: Date.now() - startTimeMs };
+      return {
+        scanned,
+        processed,
+        jobsFound: 0,
+        duplicates,
+        ignoredOld,
+        irrelevant,
+        errors: errors + 1,
+        durationMs: Date.now() - startTimeMs,
+        notified: 0
+      };
     } finally {
       SchedulerService.isRunning = false;
     }
   }
 
   /**
-   * Start recurring daemon timer if running locally
+   * Disabled automatic background loop.
    */
   public static startScheduler() {
-    if (SchedulerService.timerId) return;
-
-    const intervalMs = config.pollIntervalHours * 3600 * 1000;
-    logger.info(`[SCHEDULER] Starting scheduled daemon loop (POLL_INTERVAL_HOURS: ${config.pollIntervalHours}h / ${intervalMs / 1000}s)`);
-
-    // Execute first check cycle
-    SchedulerService.executeCheckCycle();
-
-    SchedulerService.timerId = setInterval(() => {
-      SchedulerService.executeCheckCycle();
-    }, intervalMs);
+    logger.info('[SCHEDULER] Automatic 2-hour cron loop disabled. Scans triggered manually via dashboard.');
   }
 
   /**
-   * Stop background loop
+   * Stop background loop if active.
    */
   public static stopScheduler() {
     if (SchedulerService.timerId) {

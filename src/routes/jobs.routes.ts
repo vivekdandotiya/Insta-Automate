@@ -24,6 +24,7 @@ router.get('/', async (req: Request, res: Response) => {
       employmentType,
       relevance,
       source,
+      status,
       sort = 'newest_posted',
       page = '1',
       limit = '20'
@@ -36,18 +37,30 @@ router.get('/', async (req: Request, res: Response) => {
       classification: 'JOB_POST'
     };
 
-    // 1. Date Filtering (Day-wise in IST)
+    // User status filter (e.g. NEW, VIEWED, APPLIED, REGISTERED, IGNORED)
+    if (status && String(status).trim() !== '') {
+      where.user_status = String(status).toUpperCase();
+    }
+
+    // 1. Date Filtering (Day-wise in IST or 24h active window)
     let selectedDateStr = date ? String(date).trim() : 'today';
     if (selectedDateStr === 'today') {
       selectedDateStr = getISTDateString(new Date());
     }
 
     if (date || (!fromDate && !toDate)) {
-      const { startUtc, endUtc } = getISTDayBounds(selectedDateStr);
-      where.published_at = {
-        gte: startUtc,
-        lte: endUtc
-      };
+      if (selectedDateStr === 'all') {
+        // Return all jobs
+      } else if (selectedDateStr === 'active24h') {
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        where.published_at = { gte: twentyFourHoursAgo };
+      } else {
+        const { startUtc, endUtc } = getISTDayBounds(selectedDateStr);
+        where.published_at = {
+          gte: startUtc,
+          lte: endUtc
+        };
+      }
     } else if (fromDate || toDate) {
       where.published_at = {};
       if (fromDate) {
@@ -70,7 +83,7 @@ router.get('/', async (req: Request, res: Response) => {
       where.source_account = cleanSource.startsWith('@') ? cleanSource : `@${cleanSource}`;
     }
 
-    // 3. Search Query Filter (Searches across role, company, location, caption, source, workMode, experience)
+    // 3. Search Query Filter
     if (search && String(search).trim() !== '') {
       const searchStr = String(search).trim();
       where.OR = [
@@ -157,8 +170,10 @@ router.get('/', async (req: Request, res: Response) => {
       relevance: p.relevance_score,
       relevanceScore: p.relevance_score,
       processingStatus: p.processing_status,
-      telegramSent: p.job_alert?.notification_sent || false,
-      emailSent: p.job_alert?.email_sent || false,
+      userStatus: p.user_status || 'NEW',
+      expiresAt: p.expires_at,
+      telegramSent: false,
+      emailSent: false,
       createdAt: p.detected_at,
       updatedAt: p.processed_at || p.detected_at
     }));
@@ -168,7 +183,7 @@ router.get('/', async (req: Request, res: Response) => {
     res.json({
       success: true,
       date: selectedDateStr,
-      dateLabel: getISTDateLabel(getISTDayBounds(selectedDateStr).startUtc),
+      dateLabel: selectedDateStr === 'active24h' ? 'Last 24 Hours' : getISTDateLabel(getISTDayBounds(selectedDateStr === 'all' ? getISTDateString(new Date()) : selectedDateStr).startUtc),
       timezone: 'Asia/Kolkata',
       data: {
         jobs: formattedJobs,
@@ -198,7 +213,6 @@ router.get('/stats', async (req: Request, res: Response) => {
   try {
     const todayStr = getISTDateString(new Date());
     const { startUtc, endUtc } = getISTDayBounds(todayStr);
-
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const [
@@ -217,7 +231,7 @@ router.get('/stats', async (req: Request, res: Response) => {
       prisma.processedPost.count({
         where: {
           classification: 'JOB_POST',
-          detected_at: { gte: twentyFourHoursAgo }
+          published_at: { gte: twentyFourHoursAgo }
         }
       }),
       prisma.processedPost.count({
@@ -332,8 +346,10 @@ router.get('/:id', async (req: Request, res: Response) => {
         relevance: p.relevance_score,
         relevanceScore: p.relevance_score,
         processingStatus: p.processing_status,
-        telegramSent: p.job_alert?.notification_sent || false,
-        emailSent: p.job_alert?.email_sent || false,
+        userStatus: p.user_status || 'NEW',
+        expiresAt: p.expires_at,
+        telegramSent: false,
+        emailSent: false,
         createdAt: p.detected_at,
         updatedAt: p.processed_at || p.detected_at
       }
@@ -344,14 +360,45 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/jobs/scan - Manual trigger check cycle
+ * PATCH /api/jobs/:id/status - Update job application / user status (Requirement 12)
+ */
+router.patch('/:id/status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const validStatuses = ['NEW', 'VIEWED', 'APPLIED', 'REGISTERED', 'IGNORED'];
+    if (!status || !validStatuses.includes(String(status).toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+      });
+    }
+
+    const updated = await prisma.processedPost.update({
+      where: { id },
+      data: { user_status: String(status).toUpperCase() }
+    });
+
+    res.json({
+      success: true,
+      message: `Job status updated to ${updated.user_status}`,
+      data: { id: updated.id, userStatus: updated.user_status }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/jobs/scan - Manual trigger check cycle (Requirement 1 & 15)
  */
 router.post('/scan', async (req: Request, res: Response) => {
   try {
     const result = await SchedulerService.executeCheckCycle();
     res.json({
       success: true,
-      message: 'Instagram check cycle executed successfully',
+      message: 'Instagram job scan cycle completed',
       data: result
     });
   } catch (err: any) {
