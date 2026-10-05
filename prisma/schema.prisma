@@ -17,13 +17,17 @@ model AgentState {
 }
 
 model InstagramSource {
-  id              String    @id @default(uuid())
-  username        String    @unique
-  profile_url     String
-  priority        String    @default("NORMAL")
-  enabled         Boolean   @default(true)
-  created_at      DateTime  @default(now())
-  last_checked_at DateTime?
+  id               String    @id @default(uuid())
+  username         String    @unique
+  profile_url      String
+  priority         String    @default("NORMAL")
+  enabled          Boolean   @default(true)
+  created_at       DateTime  @default(now())
+  last_checked_at  DateTime?
+  last_posts_count Int?      @default(0)
+  last_reels_count Int?      @default(0)
+  last_jobs_found  Int?      @default(0)
+  last_status      String?   @default("ACTIVE")
 }
 
 model ProcessedPost {
@@ -62,6 +66,11 @@ model JobAlert {
   deadline            String        @default("Not specified")
   application_method  String        @default("Not specified")
   application_link    String        @default("Not specified")
+  application_url     String?
+  interview_url       String?
+  test_url            String?
+  external_url        String?
+  relevance_reason    String?
   contact_information String        @default("Not specified")
   reason              String?
   notification_sent   Boolean       @default(false)

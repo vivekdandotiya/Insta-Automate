@@ -45,7 +45,11 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
 
         if (output.success && Array.isArray(output.posts)) {
           this.sourcesChecked++;
+          const pCount = output.postsChecked || 0;
+          const rCount = output.reelsChecked || 0;
+          let newReelCount = 0;
           for (const item of output.posts) {
+            if (item.postType === 'REEL') newReelCount++;
             allPosts.push({
               id: item.id,
               sourceAccount: `@${username}`,
@@ -57,6 +61,7 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
               hashtags: (item.caption || '').match(/#\w+/g) || []
             });
           }
+          logger.info(`[INSTAGRAM] @${username}\n[INSTAGRAM] Normal posts checked: ${pCount}\n[INSTAGRAM] Reels checked: ${rCount}\n[INSTAGRAM] New Reel jobs: ${newReelCount}`);
         } else {
           this.sourcesChecked++;
           if (output.error) {

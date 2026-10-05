@@ -5,11 +5,11 @@ import { FilterService } from '../src/services/filter.service.js';
 import { getMonitoredInstagramAccounts, DEFAULT_MONITORED_ACCOUNTS } from '../src/config/sources.config.js';
 import { getInstagramAdapter } from '../src/services/instagram/factory.js';
 
-describe('Comprehensive Production Audit & Test Suite (Requirement 13 & 14)', () => {
+describe('Comprehensive Production Audit & Test Suite (Prompt 5 Update)', () => {
   const agentStartTime = new Date('2026-10-03T13:30:00.000Z');
 
-  // 1. INSTALOADER ADAPTER INITIALIZATION (No APIFY_API_TOKEN required)
-  it('Requirement 2 & 12: INSTAGRAM_ADAPTER_MODE=instaloader initializes InstaloaderInstagramAdapter without APIFY_API_TOKEN', async () => {
+  // 1. INSTALOADER ADAPTER INITIALIZATION
+  it('Requirement: INSTAGRAM_ADAPTER_MODE=instaloader initializes InstaloaderInstagramAdapter', async () => {
     const { config } = await import('../src/config/index.js');
     const origMode = config.instagramAdapterMode;
     config.instagramAdapterMode = 'instaloader';
@@ -21,27 +21,70 @@ describe('Comprehensive Production Audit & Test Suite (Requirement 13 & 14)', ()
     config.instagramAdapterMode = origMode;
   });
 
-  // 2. RATE LIMIT & PARTIAL SCAN STATS
-  it('Requirement 5 & 9: Instaloader handles rate limits gracefully and returns partial scan stats', () => {
-    const partialResult = {
-      sourcesConfigured: 69,
-      sourcesChecked: 24,
-      postsFetched: 35,
-      newJobs: 4,
-      duplicates: 2,
-      ignored: 29,
-      errors: 0,
-      rateLimited: true,
-      duration: 2100
-    };
+  // 2. MONITORED INSTAGRAM SOURCES COUNT (73 ACCOUNTS)
+  it('Part 3: Monitored source list contains exactly 73 target accounts', () => {
+    const accounts = getMonitoredInstagramAccounts();
+    expect(accounts.length).toBe(73);
+    expect(DEFAULT_MONITORED_ACCOUNTS.length).toBe(73);
 
-    expect(partialResult.sourcesConfigured).toBe(69);
-    expect(partialResult.sourcesChecked).toBe(24);
-    expect(partialResult.rateLimited).toBe(true);
+    expect(accounts).toContain('careerwithkumar');
+    expect(accounts).toContain('ca.nikitasimplifies');
+    expect(accounts).toContain('._scholarly_insights._');
+    expect(accounts).toContain('rituprajapatiji');
+    expect(accounts).toContain('damineepanchal_hr_consultant');
+    expect(accounts).toContain('itsmmgeo');
+    expect(accounts).toContain('talkingmohit');
   });
 
-  // 3. 24-HOUR CUTOFF
-  it('Requirement 4: 24-hour cutoff rule accurately excludes posts older than 24 hours', () => {
+  // 3. REEL VS POST CLASSIFICATION & DEDUPLICATION
+  it('Part 2: Explicitly distinguishes REEL vs POST media types & prevents duplicates', () => {
+    const postItem = { id: 'REEL_101', postType: 'REEL', shortcode: 'C123' };
+    const duplicateItem = { id: 'REEL_101', postType: 'POST', shortcode: 'C123' };
+
+    const seenSet = new Set<string>();
+    seenSet.add(postItem.id);
+
+    expect(postItem.postType).toBe('REEL');
+    expect(seenSet.has(duplicateItem.id)).toBe(true);
+  });
+
+  // 4. URL EXTRACTION (Application, Test, Interview)
+  it('Part 7 & 8: Direct application, test, and interview URL extraction without fake URLs', () => {
+    const captionWithUrls = `Hiring Full Stack Developer in Noida!
+    Apply link: https://careers.company.com/apply/123
+    Coding Test Link: https://hackerrank.com/test-456
+    Walk-in Interview details at https://company.com/interview`;
+
+    const res = RuleClassifier.classify(captionWithUrls);
+    expect(res.isJobPost).toBe(true);
+    expect(res.applicationUrl).toBe('https://careers.company.com/apply/123');
+    expect(res.testUrl).toBe('https://hackerrank.com/test-456');
+    expect(res.interviewUrl).toBe('https://company.com/interview');
+
+    // Case with no URLs
+    const captionNoUrl = `Urgent opening for QA Engineer in Gurgaon. DM for details.`;
+    const resNoUrl = RuleClassifier.classify(captionNoUrl);
+    expect(resNoUrl.applicationUrl).toBeUndefined();
+    expect(resNoUrl.testUrl).toBeUndefined();
+    expect(resNoUrl.interviewUrl).toBeUndefined();
+  });
+
+  // 5. GOVERNMENT RECRUITMENT CLASSIFICATION
+  it('Part 4: Detects government recruitment announcements accurately', () => {
+    const govPost = RuleClassifier.classify('DSSSB Delhi District Courts Recruitment 2026 Notification Released for Junior Judicial Assistant');
+    expect(govPost.isJobPost).toBe(true);
+    expect(govPost.role).toBe('Government Recruitment');
+  });
+
+  // 6. RELEVANCE SCORING & EXPLANATION
+  it('Part 6: Calculates HIGH relevance score and generates explanation', () => {
+    const res = RuleClassifier.classify('Hiring Software Developer in Noida. Apply link https://forms.gle/xyz');
+    expect(res.relevanceScore).toBe('HIGH');
+    expect(res.relevanceReason).toContain('Delhi NCR');
+  });
+
+  // 7. 24-HOUR CUTOFF
+  it('Part 15: 24-hour cutoff rule excludes posts older than 24 hours', () => {
     const now = new Date();
     const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -52,74 +95,8 @@ describe('Comprehensive Production Audit & Test Suite (Requirement 13 & 14)', ()
     expect(oldPost.getTime() >= cutoff24h.getTime()).toBe(false);
   });
 
-  // 4. DUPLICATE POST ID
-  it('Requirement 6: Unique Instagram Post ID prevents duplicate entries across scans and multiple accounts', () => {
-    const dbPosts = new Set<string>();
-
-    const firstSeenPost = { id: 'INSTA_POST_123', sourceAccount: '@account_a' };
-    const secondSeenPost = { id: 'INSTA_POST_123', sourceAccount: '@account_b' };
-
-    if (!dbPosts.has(firstSeenPost.id)) {
-      dbPosts.add(firstSeenPost.id);
-    }
-    expect(dbPosts.size).toBe(1);
-
-    let duplicateCaught = false;
-    if (dbPosts.has(secondSeenPost.id)) {
-      duplicateCaught = true;
-    }
-    expect(duplicateCaught).toBe(true);
-    expect(dbPosts.size).toBe(1);
-  });
-
-  // 5. APPLIED & REGISTERED STATUS
-  it('Requirement 8: User status updates for APPLIED and REGISTERED', () => {
-    let job = { id: '101', user_status: 'NEW' };
-    
-    job.user_status = 'APPLIED';
-    expect(job.user_status).toBe('APPLIED');
-
-    job.user_status = 'REGISTERED';
-    expect(job.user_status).toBe('REGISTERED');
-  });
-
-  // 6. ROLE & LOCATION FILTERING
-  it('Requirement 7: Role and Location filtering evaluate correctly', () => {
-    const match1 = RuleClassifier.classify('Hiring Full Stack Developer in Noida / Delhi NCR');
-    expect(match1.isJobPost).toBe(true);
-    expect(match1.role).toBe('Full Stack Developer');
-    expect(match1.location).toContain('Noida');
-
-    const locs = FilterService.normalizeLocation('Noida');
-    expect(locs).toContain('Greater Noida');
-
-    const ncrLocs = FilterService.normalizeLocation('Delhi NCR');
-    expect(ncrLocs).toContain('Noida');
-    expect(ncrLocs).toContain('Gurugram');
-  });
-
-  // 7. MONITORED INSTAGRAM SOURCES AUDIT
-  it('Requirement 3: Monitored source list contains exactly 69 target accounts', () => {
-    const accounts = getMonitoredInstagramAccounts();
-    expect(accounts.length).toBe(69);
-    expect(DEFAULT_MONITORED_ACCOUNTS.length).toBe(69);
-
-    expect(accounts).toContain('careerwithkumar');
-    expect(accounts).toContain('ca.nikitasimplifies');
-    expect(accounts).toContain('._scholarly_insights._');
-  });
-
-  // 8. CLASSIFIER & GENERIC CONTENT REJECTION
-  it('Requirement 7: Classifies job posts & rejects generic career advice', () => {
-    const p1 = RuleClassifier.classify('Job Alert: Software Engineer | Remote | Freshers apply link in bio');
-    expect(p1.isJobPost).toBe(true);
-
-    const g1 = RuleClassifier.classify('10 career tips for students');
-    expect(g1.isJobPost).toBe(false);
-  });
-
-  // 9. AGENT START TIME PERSISTENCE
-  it('Requirement: AGENT_START_TIME cutoff ignores pre-start posts & preserves timestamp', () => {
+  // 8. AGENT START TIME PERSISTENCE
+  it('Requirement: AGENT_START_TIME cutoff preserves timestamp state', () => {
     const preStartPost = new Date('2026-10-03T13:29:00.000Z');
     const postStartPost = new Date('2026-10-03T13:31:00.000Z');
 

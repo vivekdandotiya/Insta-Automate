@@ -25,6 +25,7 @@ router.get('/', async (req: Request, res: Response) => {
       relevance,
       source,
       status,
+      mediaType,
       sort = 'newest_posted',
       page = '1',
       limit = '20'
@@ -36,6 +37,13 @@ router.get('/', async (req: Request, res: Response) => {
     const where: any = {
       classification: 'JOB_POST'
     };
+
+    // Media type filter (REEL vs POST)
+    if (mediaType && String(mediaType).toLowerCase() === 'reels') {
+      where.post_type = 'REEL';
+    } else if (mediaType && String(mediaType).toLowerCase() === 'posts') {
+      where.post_type = 'POST';
+    }
 
     // User status filter (e.g. NEW, VIEWED, APPLIED, REGISTERED, IGNORED)
     if (status && String(status).trim() !== '') {
@@ -163,6 +171,11 @@ router.get('/', async (req: Request, res: Response) => {
       workMode: p.job_alert?.work_mode || 'Not specified',
       employmentType: p.job_alert?.employment_type || 'Not specified',
       applyUrl: p.job_alert?.application_link || 'Not specified',
+      applicationUrl: (p.job_alert as any)?.application_url || null,
+      interviewUrl: (p.job_alert as any)?.interview_url || null,
+      testUrl: (p.job_alert as any)?.test_url || null,
+      externalUrl: (p.job_alert as any)?.external_url || null,
+      relevanceReason: (p.job_alert as any)?.relevance_reason || null,
       postedAt: p.published_at,
       postedAtFormatted: formatShortIST(p.published_at),
       detectedAt: p.detected_at,

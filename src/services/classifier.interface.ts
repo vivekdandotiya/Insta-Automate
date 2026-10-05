@@ -12,6 +12,11 @@ export interface JobClassificationResult {
   deadline: string;
   applicationMethod: string;
   applicationLink: string;
+  applicationUrl?: string;
+  interviewUrl?: string;
+  testUrl?: string;
+  externalUrl?: string;
+  relevanceReason?: string;
   contactInformation: string;
   reason: string;
   confidence: number;

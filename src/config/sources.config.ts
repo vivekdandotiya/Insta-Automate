@@ -67,7 +67,11 @@ export const DEFAULT_MONITORED_ACCOUNTS: string[] = [
   'tech_jobs_india',
   'careerwithkumar',
   'ca.nikitasimplifies',
-  '._scholarly_insights._'
+  '._scholarly_insights._',
+  'rituprajapatiji',
+  'damineepanchal_hr_consultant',
+  'itsmmgeo',
+  'talkingmohit'
 ];
 
 /**

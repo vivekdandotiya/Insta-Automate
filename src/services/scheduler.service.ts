@@ -217,6 +217,11 @@ export class SchedulerService {
               deadline: jobResult.deadline,
               application_method: jobResult.applicationMethod,
               application_link: jobResult.applicationLink,
+              application_url: jobResult.applicationUrl || null,
+              interview_url: jobResult.interviewUrl || null,
+              test_url: jobResult.testUrl || null,
+              external_url: jobResult.externalUrl || null,
+              relevance_reason: jobResult.relevanceReason || null,
               contact_information: jobResult.contactInformation,
               reason: filterEvaluation.reason,
               notification_sent: false,
@@ -232,7 +237,10 @@ export class SchedulerService {
       const checkTime = new Date();
       await prisma.instagramSource.updateMany({
         where: { enabled: true },
-        data: { last_checked_at: checkTime }
+        data: {
+          last_checked_at: checkTime,
+          last_status: (adapter as any).rateLimited ? 'RATE_LIMITED' : 'ACTIVE'
+        }
       });
 
       // 6. Save Successful Checkpoint Timestamp
