@@ -11,27 +11,24 @@ import { logger } from '../../utils/logger.js';
 export function getInstagramAdapter(): InstagramAdapter {
   const mode = (config.instagramAdapterMode || 'apify').toLowerCase();
 
-  switch (mode) {
-    case 'apify':
-      logger.info('Using Apify Instagram Actor Adapter (Public Accounts & Reels Support)');
-      return new ApifyInstagramAdapter();
-    case 'instaloader':
-      logger.info('Using Self-Hosted Instaloader Open-Source Instagram Adapter');
-      return new InstaloaderInstagramAdapter();
-    case 'rapidapi':
-      logger.info('Using RapidAPI Instagram Data Adapter');
-      return new RapidApiInstagramAdapter();
-    case 'graph_api':
-      logger.info('Using Official Meta Graph API Instagram Adapter');
-      return new OfficialGraphApiAdapter();
-    case 'scraper':
-      logger.info('Using Custom Scraper Gateway Instagram Adapter');
-      return new ScraperInstagramAdapter();
-    case 'mock':
-      logger.info('Using Mock Instagram Adapter for local testing & demo');
-      return new MockInstagramAdapter();
-    default:
-      logger.info('Defaulting to Apify Instagram Actor Adapter');
-      return new ApifyInstagramAdapter();
+  if (mode === 'rapidapi') {
+    logger.info('Using RapidAPI Instagram Data Adapter');
+    return new RapidApiInstagramAdapter();
   }
+  if (mode === 'graph_api') {
+    logger.info('Using Official Meta Graph API Instagram Adapter');
+    return new OfficialGraphApiAdapter();
+  }
+  if (mode === 'scraper') {
+    logger.info('Using Custom Scraper Gateway Instagram Adapter');
+    return new ScraperInstagramAdapter();
+  }
+  if (mode === 'mock') {
+    logger.info('Using Mock Instagram Adapter for local testing & demo');
+    return new MockInstagramAdapter();
+  }
+
+  // Primary Production Acquisition: Apify Instagram Actor Adapter
+  logger.info('Using Apify Instagram Actor Adapter (Primary Production Acquisition)');
+  return new ApifyInstagramAdapter();
 }
