@@ -413,6 +413,21 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/jobs/health & /instagram-health - Diagnostic Instagram connectivity test (Requirement 6)
+ */
+router.get(['/health', '/instagram-health'], async (req: Request, res: Response) => {
+  try {
+    const healthResult = await SchedulerService.runInstagramHealthCheck();
+    res.json({
+      success: true,
+      data: healthResult
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * GET /api/jobs/status - Retrieve current live scan progress & status
  */
 router.get('/status', (req: Request, res: Response) => {

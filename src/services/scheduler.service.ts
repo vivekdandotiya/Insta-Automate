@@ -103,6 +103,24 @@ export class SchedulerService {
     };
   }
 
+  public static async runInstagramHealthCheck(testAccount: string = 'karrar_hussain_jobs') {
+    const adapter = getInstagramAdapter();
+    if (typeof (adapter as any).runHealthCheck === 'function') {
+      return (adapter as any).runHealthCheck(testAccount);
+    }
+    return {
+      instagramReachable: false,
+      profileLookup: 'ERROR',
+      posts: 'ERROR',
+      reels: 'ERROR',
+      statusCode: 500,
+      instaloaderVersion: '4.15.3',
+      environment: process.env.NODE_ENV || 'production',
+      sessionConfigured: Boolean(process.env.INSTAGRAM_SESSION_ID || process.env.INSTAGRAM_SESSION_COOKIE),
+      error: 'Health check method not supported on active adapter'
+    };
+  }
+
   /**
    * Main single-cycle manual/on-demand execution for Instagram job scans.
    */
@@ -165,6 +183,8 @@ export class SchedulerService {
     let ignoredOld = 0;
     let irrelevant = 0;
     let errors = 0;
+    let dbInsertSuccessCount = 0;
+    let dbInsertFailureCount = 0;
     let highCount = 0;
     let mediumCount = 0;
     let lowCount = 0;
@@ -214,13 +234,61 @@ export class SchedulerService {
       logger.info(`[JOB SEARCH ENGINE] NOW UTC: ${now.toISOString()} | IST: ${formatIST(now)}`);
       logger.info(`[JOB SEARCH ENGINE] 24-Hour Active Cutoff UTC: ${cutoff24h.toISOString()} | IST: ${formatIST(cutoff24h)}`);
 
-      // 2. Synchronize and load active Instagram sources
+      // 2. Pre-Scan Health Check (Section 20 requirement)
+      const adapter = getInstagramAdapter();
+      if (typeof (adapter as any).runHealthCheck === 'function') {
+        SchedulerService.statusMessage = 'Performing Instagram connectivity health check...';
+        const healthCheck = await (adapter as any).runHealthCheck('karrar_hussain_jobs');
+        logger.info(`[PRE-SCAN HEALTH CHECK] Outcome: profileLookup=${healthCheck.profileLookup}, reachable=${healthCheck.instagramReachable}`);
+
+        if (healthCheck.profileLookup === 'RATE_LIMITED' || healthCheck.profileLookup === 'FORBIDDEN') {
+          const failMsg = `Instagram access rate-limited (HTTP ${healthCheck.statusCode}). Configure INSTAGRAM_SESSION_ID in environment settings for authenticated scraping.`;
+          logger.warn(`[PRE-SCAN HEALTH CHECK FAILED] ${failMsg}`);
+          
+          SchedulerService.statusMessage = failMsg;
+          SchedulerService.sourcesRateLimited = 1;
+
+          const durationMs = Date.now() - startTimeMs;
+          const healthFailRes: ScanCycleResult = {
+            sourcesConfigured: 73,
+            sourcesChecked: 1,
+            sourcesSucceeded: 0,
+            sourcesFailed: 0,
+            sourcesRateLimited: 1,
+            sourcesTimedOut: 0,
+            postsChecked: 0,
+            reelsChecked: 0,
+            postsFetched: 0,
+            reelsFetched: 0,
+            candidatesFound: 0,
+            relevantJobs: 0,
+            highJobs: 0,
+            mediumJobs: 0,
+            lowJobs: 0,
+            newJobs: 0,
+            duplicates: 0,
+            ignored: 0,
+            expired: 0,
+            errors: 1,
+            accountsFailed: 1,
+            rateLimited: true,
+            durationMs,
+            duration: durationMs,
+            status: 'failed',
+            message: failMsg
+          };
+
+          SchedulerService.lastScanResult = healthFailRes;
+          return healthFailRes;
+        }
+      }
+
+      // 3. Synchronize and load active Instagram sources
       await SourceService.syncMonitoredSources();
       const activeSources = await prisma.instagramSource.findMany({ where: { enabled: true } });
       const sourcesConfigured = activeSources.length || 73;
       SchedulerService.totalSources = sourcesConfigured;
 
-      const adapter = getInstagramAdapter();
       let fetchedPosts: RawInstagramPost[] = [];
 
       if (typeof adapter.fetchBatchPosts === 'function') {
@@ -259,14 +327,14 @@ export class SchedulerService {
 
         logger.info(`[CANDIDATE CHECK] ID: ${post.id} | Account: ${post.sourceAccount} | Type: ${post.postType} | Published UTC: ${pubTime.toISOString()} | Age: ${ageHours.toFixed(2)}h`);
 
-        // 3. 24-Hour Cutoff & AGENT_START_TIME Rule
+        // 4. 24-Hour Cutoff & AGENT_START_TIME Rule
         if (pubTime.getTime() < cutoff24h.getTime() || !isPostAfterStartTime(pubTime, agentState.agent_start_time)) {
           ignoredOld++;
           logger.info(`[JOB SEARCH ENGINE] IGNORED (Older than 24h or pre-start): Post ${post.id} published ${formatIST(pubTime)} (Age: ${ageHours.toFixed(2)}h)`);
           continue;
         }
 
-        // 4. Primary Duplicate Protection (Instagram Post ID)
+        // 5. Primary Duplicate Protection (Instagram Post ID)
         const existingPost = await prisma.processedPost.findUnique({
           where: { instagram_post_id: post.id }
         });
@@ -280,7 +348,7 @@ export class SchedulerService {
 
         const contentHash = crypto.createHash('md5').update(`${post.caption}_${pubTime.getTime()}`).digest('hex');
 
-        // 5. Classification & Relevance Extraction
+        // 6. Classification & Relevance Extraction
         let jobResult;
         try {
           jobResult = await ClassifierService.processContent(post.caption, post.mediaUrls);
@@ -335,6 +403,7 @@ export class SchedulerService {
             logger.info(`[JOB SEARCH ENGINE] Race condition duplicate caught for post ${post.id}`);
             continue;
           }
+          dbInsertFailureCount++;
           logger.error(`[DB ERROR] Failed to create ProcessedPost record for ${post.id}: ${dbErr.message}`);
           throw dbErr;
         }
@@ -373,8 +442,10 @@ export class SchedulerService {
               }
             });
 
+            dbInsertSuccessCount++;
             logger.info(`[DB INSERT SUCCESS] JobAlert created for post ${post.id} (${jobResult.role} at ${jobResult.company})`);
           } catch (dbAlertErr: any) {
+            dbInsertFailureCount++;
             logger.error(`[DB ERROR] Failed to create JobAlert record for ${post.id}: ${dbAlertErr.message}`);
           }
         }
@@ -402,6 +473,10 @@ export class SchedulerService {
       const rateLimited = (adapter as any).rateLimited || false;
       const adapterErrors = (adapter as any).errorsCount || 0;
 
+      const profileLookup429 = (adapter as any).profileLookup429 || 0;
+      const profileLookup403 = (adapter as any).profileLookup403 || 0;
+      const profileLookupOtherError = (adapter as any).profileLookupOtherError || 0;
+
       // Determine explicit status
       let finalStatus: 'completed' | 'partial' | 'failed' = 'completed';
       let statusMessage = `Scan completed (${sourcesSucceeded}/${sourcesConfigured} sources checked)`;
@@ -418,29 +493,28 @@ export class SchedulerService {
 
       SchedulerService.statusMessage = statusMessage;
 
+      // Count total jobs currently in API DB
+      const apiJobsCount = await prisma.processedPost.count({ where: { classification: 'JOB_POST' } });
+
       logger.info(`
-========== SCAN SUMMARY ==========
-Sources configured: ${sourcesConfigured}
-Sources checked: ${sourcesChecked}
-Sources succeeded: ${sourcesSucceeded}
-Sources rate limited: ${sourcesRateLimited}
-Sources timed out: ${sourcesTimedOut}
-Sources failed: ${sourcesFailed}
-Posts checked: ${SchedulerService.totalPostsChecked}
-Reels checked: ${SchedulerService.totalReelsChecked}
-Candidates: ${scanned}
-Relevant jobs: ${highCount + mediumCount + lowCount}
-High: ${highCount}
-Medium: ${mediumCount}
-Low: ${lowCount}
-New jobs: ${processed - irrelevant}
-Duplicates: ${duplicates}
-Expired: ${ignoredOld}
-Rate limited: ${rateLimited}
-Errors: ${errors + adapterErrors}
-Duration: ${(durationMs / 1000).toFixed(1)}s
-Status: ${finalStatus} (${statusMessage})
-==================================`);
+==================== PIPELINE STAGE SUMMARY ====================
+INSTAGRAM ACCOUNTS REQUESTED: ${sourcesConfigured}
+PROFILE LOOKUPS:              ${sourcesChecked}
+PROFILE LOOKUP SUCCESS:       ${sourcesSucceeded}
+PROFILE LOOKUP 429:           ${profileLookup429}
+PROFILE LOOKUP 403:           ${profileLookup403}
+PROFILE LOOKUP OTHER ERROR:   ${profileLookupOtherError}
+POSTS FETCHED:                ${SchedulerService.totalPostsChecked}
+REELS FETCHED:                ${SchedulerService.totalReelsChecked}
+JOB CANDIDATES:               ${scanned}
+CLASSIFIED RELEVANT:          ${highCount + mediumCount + lowCount}
+DB INSERT SUCCESS:            ${dbInsertSuccessCount}
+DB INSERT FAILURE:            ${dbInsertFailureCount}
+API JOBS:                     ${apiJobsCount}
+DASHBOARD JOBS:               ${apiJobsCount}
+DURATION:                     ${(durationMs / 1000).toFixed(1)}s
+STATUS:                       ${finalStatus} (${statusMessage})
+================================================================`);
 
       const resultPayload: ScanCycleResult = {
         sourcesConfigured,

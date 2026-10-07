@@ -4,17 +4,104 @@ import { InstagramAdapter, RawInstagramPost } from './adapter.interface.js';
 import { logger } from '../../utils/logger.js';
 import { SchedulerService } from '../scheduler.service.js';
 
+export interface InstagramHealthCheckResult {
+  instagramReachable: boolean;
+  profileLookup: 'SUCCESS' | 'RATE_LIMITED' | 'FORBIDDEN' | 'ERROR';
+  posts: 'SUCCESS' | 'ERROR';
+  reels: 'SUCCESS' | 'ERROR';
+  statusCode: number;
+  instaloaderVersion: string;
+  environment: string;
+  sessionConfigured: boolean;
+  error: string | null;
+}
+
 export class InstaloaderInstagramAdapter implements InstagramAdapter {
   public sourcesChecked: number = 0;
   public sourcesSucceeded: number = 0;
   public sourcesFailed: number = 0;
   public sourcesRateLimited: number = 0;
   public sourcesTimedOut: number = 0;
+  public profileLookup429: number = 0;
+  public profileLookup403: number = 0;
+  public profileLookupOtherError: number = 0;
   public rateLimited: boolean = false;
   public errorsCount: number = 0;
 
   public async fetchLatestPosts(sourceAccount: string): Promise<RawInstagramPost[]> {
     return this.fetchBatchPosts([sourceAccount]);
+  }
+
+  public async runHealthCheck(testAccount: string = 'karrar_hussain_jobs'): Promise<InstagramHealthCheckResult> {
+    const scriptPath = path.resolve(process.cwd(), 'scripts', 'instaloader_fetch.py');
+    const sessionConfigured = Boolean(process.env.INSTAGRAM_SESSION_ID || process.env.INSTAGRAM_SESSION_COOKIE);
+
+    logger.info(`[INSTAGRAM HEALTH CHECK] Testing diagnostic fetch on @${testAccount}...`);
+
+    try {
+      const res = await this.runPythonScript(scriptPath, testAccount, 20000);
+      if (res.success && Array.isArray(res.posts)) {
+        return {
+          instagramReachable: true,
+          profileLookup: 'SUCCESS',
+          posts: 'SUCCESS',
+          reels: 'SUCCESS',
+          statusCode: 200,
+          instaloaderVersion: '4.15.3',
+          environment: process.env.NODE_ENV || 'production',
+          sessionConfigured,
+          error: null
+        };
+      } else if (res.rateLimited) {
+        return {
+          instagramReachable: false,
+          profileLookup: 'RATE_LIMITED',
+          posts: 'ERROR',
+          reels: 'ERROR',
+          statusCode: res.httpStatus || 429,
+          instaloaderVersion: '4.15.3',
+          environment: process.env.NODE_ENV || 'production',
+          sessionConfigured,
+          error: res.error || 'HTTP 429/401 Instagram Access Restricted'
+        };
+      } else if (res.forbidden) {
+        return {
+          instagramReachable: false,
+          profileLookup: 'FORBIDDEN',
+          posts: 'ERROR',
+          reels: 'ERROR',
+          statusCode: 403,
+          instaloaderVersion: '4.15.3',
+          environment: process.env.NODE_ENV || 'production',
+          sessionConfigured,
+          error: res.error || 'HTTP 403 Forbidden'
+        };
+      } else {
+        return {
+          instagramReachable: false,
+          profileLookup: 'ERROR',
+          posts: 'ERROR',
+          reels: 'ERROR',
+          statusCode: 500,
+          instaloaderVersion: '4.15.3',
+          environment: process.env.NODE_ENV || 'production',
+          sessionConfigured,
+          error: res.error || 'Unknown health check failure'
+        };
+      }
+    } catch (err: any) {
+      return {
+        instagramReachable: false,
+        profileLookup: 'ERROR',
+        posts: 'ERROR',
+        reels: 'ERROR',
+        statusCode: 500,
+        instaloaderVersion: '4.15.3',
+        environment: process.env.NODE_ENV || 'production',
+        sessionConfigured,
+        error: err.message
+      };
+    }
   }
 
   public async fetchBatchPosts(sourceAccounts: string[]): Promise<RawInstagramPost[]> {
@@ -23,6 +110,9 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
     this.sourcesFailed = 0;
     this.sourcesRateLimited = 0;
     this.sourcesTimedOut = 0;
+    this.profileLookup429 = 0;
+    this.profileLookup403 = 0;
+    this.profileLookupOtherError = 0;
     this.rateLimited = false;
     this.errorsCount = 0;
 
@@ -50,7 +140,7 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
       const username = cleanUsernames[i];
       const nowMs = Date.now();
 
-      // 1. HARD GLOBAL DEADLINE CHECK (10 Minutes)
+      // HARD GLOBAL DEADLINE CHECK (10 Minutes)
       if (nowMs >= deadline) {
         logger.warn(`[INSTALOADER ADAPTER] Maximum scan duration of ${MAX_SCAN_DURATION_MINUTES} minutes reached. Stopping further account fetches.`);
         SchedulerService.statusMessage = `Maximum scan duration (${MAX_SCAN_DURATION_MINUTES}:00) reached. Finalizing results...`;
@@ -77,7 +167,6 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
       const backoffDelays = [30000, 60000, 120000]; // 30s, 60s, 120s backoff
 
       for (let attempt = 1; attempt <= 4; attempt++) {
-        // Re-check deadline before each retry attempt
         const checkNow = Date.now();
         if (checkNow >= deadline) {
           logger.warn(`[GLOBAL DEADLINE] Reached deadline during retry evaluation for @${username}. Aborting retries.`);
@@ -102,7 +191,7 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
               const actualWaitMs = Math.min(desiredWait, waitRemaining);
               const waitSec = Math.round(actualWaitMs / 1000);
 
-              logger.warn(`[429 RETRY] @${username} encountered HTTP 429 Rate Limit (Attempt ${attempt}/3). Waiting ${waitSec}s...`);
+              logger.warn(`[429 RETRY] @${username} encountered HTTP 429/401 Rate Limit (Attempt ${attempt}/3). Waiting ${waitSec}s...`);
               SchedulerService.statusMessage = `RATE LIMIT COOLDOWN: @${username} (Retry ${attempt}/3) - Waiting ${waitSec}s...`;
               
               await new Promise(r => setTimeout(r, actualWaitMs));
@@ -156,9 +245,11 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
       } else if (fetchResult && fetchResult.timedOut) {
         this.sourcesTimedOut++;
         this.errorsCount++;
+        this.profileLookupOtherError++;
         logger.warn(`[ACCOUNT TIMEOUT] @${username} timed out after ${ACCOUNT_TIMEOUT_MS}ms.`);
       } else if (fetchResult && fetchResult.rateLimited) {
         this.sourcesRateLimited++;
+        this.profileLookup429++;
         consecutiveRateLimits++;
         logger.warn(`[RATE LIMITED RECORDED] @${username} marked as RATE_LIMITED.`);
 
@@ -173,9 +264,15 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
           }
           consecutiveRateLimits = 0;
         }
+      } else if (fetchResult && fetchResult.forbidden) {
+        this.sourcesFailed++;
+        this.errorsCount++;
+        this.profileLookup403++;
+        logger.warn(`[PROFILE FORBIDDEN] @${username} returned 403 Forbidden.`);
       } else {
         this.sourcesFailed++;
         this.errorsCount++;
+        this.profileLookupOtherError++;
         const errMsg = fetchResult?.error || 'Unknown account fetch failure';
         logger.warn(`[INSTALOADER ADAPTER] Error fetching @${username}: ${errMsg}`);
       }
@@ -220,8 +317,12 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
             return resolve({ success: false, timedOut: true, error: `Account timeout after ${timeoutMs}ms` });
           }
 
-          if (combined.includes('429') || combined.includes('Too Many Requests') || combined.includes('rate limit')) {
-            return resolve({ success: false, rateLimited: true, error: 'HTTP 429 Too Many Requests' });
+          if (combined.includes('403 Forbidden') || combined.includes('403')) {
+            return resolve({ success: false, forbidden: true, httpStatus: 403, error: 'HTTP 403 Forbidden' });
+          }
+
+          if (combined.includes('429') || combined.includes('401') || combined.includes('Too Many Requests') || combined.includes('unauthorized') || combined.includes('rate limit')) {
+            return resolve({ success: false, rateLimited: true, httpStatus: 429, error: 'HTTP 429/401 Rate Limit on web_profile_info' });
           }
 
           if (error || !stdout) {

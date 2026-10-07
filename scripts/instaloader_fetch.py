@@ -8,22 +8,37 @@ from datetime import datetime, timezone, timedelta
 # Set 15-second socket timeout globally so instaloader requests never hang indefinitely on socket read
 socket.setdefaulttimeout(15)
 
+def create_instaloader_instance():
+    import instaloader
+    L = instaloader.Instaloader(
+        download_pictures=False,
+        download_videos=False,
+        download_video_thumbnails=False,
+        download_geotags=False,
+        download_comments=False,
+        save_metadata=False,
+        compress_json=False,
+        max_connection_attempts=1
+    )
+    
+    # Disable internal Instaloader rate-controller sleeps so Node controls backoff timing exclusively
+    if hasattr(L, 'rate_controller') and hasattr(L.rate_controller, 'sleep_time'):
+        L.rate_controller.sleep_time = lambda *args, **kwargs: 0
+
+    # Attach optional sessionid cookie if provided in environment
+    session_id = os.environ.get('INSTAGRAM_SESSION_ID', '').strip() or os.environ.get('INSTAGRAM_SESSION_COOKIE', '').strip()
+    if session_id:
+        L.context._session.cookies.set('sessionid', session_id, domain='.instagram.com')
+
+    return L
+
 def fetch_account(username):
     POST_LIMIT = int(os.environ.get('INSTAGRAM_POST_LIMIT', '5'))
     REEL_LIMIT = int(os.environ.get('INSTAGRAM_REEL_LIMIT', '10'))
 
     try:
         import instaloader
-        L = instaloader.Instaloader(
-            download_pictures=False,
-            download_videos=False,
-            download_video_thumbnails=False,
-            download_geotags=False,
-            download_comments=False,
-            save_metadata=False,
-            compress_json=False,
-            max_connection_attempts=1
-        )
+        L = create_instaloader_instance()
         profile = instaloader.Profile.from_username(L.context, username)
         
         seen_ids = set()
@@ -60,8 +75,8 @@ def fetch_account(username):
                 })
         except Exception as e:
             err_str = str(e).lower()
-            if "429" in err_str or "too many requests" in err_str:
-                return {"success": False, "rateLimited": True, "error": "HTTP 429 Too Many Requests"}
+            if any(term in err_str for term in ["429", "401", "too many requests", "unauthorized", "please wait a few minutes", "rate limit"]):
+                return {"success": False, "rateLimited": True, "httpStatus": 429, "error": "HTTP 429/401 Rate Limit on posts"}
             elif "timed out" in err_str or "timeout" in err_str:
                 return {"success": False, "timedOut": True, "error": f"Socket timeout while reading posts for @{username}"}
 
@@ -91,22 +106,25 @@ def fetch_account(username):
                     })
         except Exception as e:
             err_str = str(e).lower()
-            if "429" in err_str or "too many requests" in err_str:
-                return {"success": False, "rateLimited": True, "error": "HTTP 429 Too Many Requests"}
+            if any(term in err_str for term in ["429", "401", "too many requests", "unauthorized", "please wait a few minutes", "rate limit"]):
+                return {"success": False, "rateLimited": True, "httpStatus": 429, "error": "HTTP 429/401 Rate Limit on reels"}
             elif "timed out" in err_str or "timeout" in err_str:
                 return {"success": False, "timedOut": True, "error": f"Socket timeout while reading reels for @{username}"}
 
         return {
             "success": True,
             "username": username,
+            "profileLookup": "SUCCESS",
             "postsChecked": posts_checked,
             "reelsChecked": reels_checked,
             "posts": posts
         }
     except Exception as e:
         err_str = str(e).lower()
-        if "429" in err_str or "too many requests" in err_str or "rate limit" in err_str:
-            return {"success": False, "rateLimited": True, "error": "HTTP 429 Too Many Requests"}
+        if any(term in err_str for term in ["429", "401", "too many requests", "unauthorized", "please wait a few minutes", "rate limit"]):
+            return {"success": False, "rateLimited": True, "httpStatus": 429, "error": f"Instagram Access Restricted (401/429): {str(e)}"}
+        elif "403" in err_str or "forbidden" in err_str:
+            return {"success": False, "forbidden": True, "httpStatus": 403, "error": f"HTTP 403 Forbidden for @{username}"}
         elif "timed out" in err_str or "timeout" in err_str:
             return {"success": False, "timedOut": True, "error": f"Socket timeout for @{username}"}
         return {"success": False, "error": str(e)}

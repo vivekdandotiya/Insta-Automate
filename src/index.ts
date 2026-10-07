@@ -36,13 +36,25 @@ app.use('/api/alerts', alertsRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/logs', logsRoutes);
 
-// Health check endpoints (Requirement 17 & 24)
+// Health check endpoints (Requirement 6, 17 & 24)
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'Instagram Job Search Engine', timestamp: new Date() });
+});
+
+app.get('/api/instagram/health', async (req, res) => {
+  try {
+    const healthResult = await SchedulerService.runInstagramHealthCheck();
+    res.json({
+      success: true,
+      data: healthResult
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 async function bootstrap() {
