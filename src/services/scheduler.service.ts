@@ -12,19 +12,28 @@ import { RawInstagramPost } from './instagram/adapter.interface.js';
 export interface ScanCycleResult {
   sourcesConfigured: number;
   sourcesChecked: number;
+  sourcesSucceeded: number;
+  sourcesFailed: number;
+  postsChecked: number;
+  reelsChecked: number;
   postsFetched: number;
+  reelsFetched: number;
+  candidatesFound: number;
+  relevantJobs: number;
+  highJobs: number;
+  mediumJobs: number;
+  lowJobs: number;
   newJobs: number;
   duplicates: number;
   ignored: number;
-  errors: number;
+  expired: number;
   rateLimited: boolean;
-  duration: number;
-  scanned?: number;
-  processed?: number;
-  jobsFound?: number;
-  ignoredOld?: number;
-  irrelevant?: number;
-  durationMs?: number;
+  errors: number;
+  accountsFailed: number;
+  durationMs: number;
+  duration?: number;
+  status: 'completed' | 'partial' | 'failed' | 'running';
+  message?: string;
 }
 
 export class SchedulerService {
@@ -32,9 +41,24 @@ export class SchedulerService {
   private static timerId: NodeJS.Timeout | null = null;
   public static lastScanResult: ScanCycleResult | null = null;
 
+  public static currentAccount: string = '';
+  public static currentIndex: number = 0;
+  public static totalSources: number = 73;
+  public static totalPostsChecked: number = 0;
+  public static totalReelsChecked: number = 0;
+  public static totalJobsFound: number = 0;
+
   public static getScanStatus() {
     return {
       isScanning: SchedulerService.isRunning,
+      progress: {
+        currentAccount: SchedulerService.currentAccount,
+        currentIndex: SchedulerService.currentIndex,
+        totalSources: SchedulerService.totalSources,
+        postsChecked: SchedulerService.totalPostsChecked,
+        reelsChecked: SchedulerService.totalReelsChecked,
+        jobsFound: SchedulerService.totalJobsFound
+      },
       lastScanResult: SchedulerService.lastScanResult
     };
   }
@@ -46,19 +70,38 @@ export class SchedulerService {
     if (SchedulerService.isRunning) {
       logger.warn('[SCHEDULER] Scan cycle already in progress. Skipping duplicate execution.');
       return SchedulerService.lastScanResult || {
-        sourcesConfigured: 69,
+        sourcesConfigured: 73,
         sourcesChecked: 0,
+        sourcesSucceeded: 0,
+        sourcesFailed: 0,
+        postsChecked: 0,
+        reelsChecked: 0,
         postsFetched: 0,
+        reelsFetched: 0,
+        candidatesFound: 0,
+        relevantJobs: 0,
+        highJobs: 0,
+        mediumJobs: 0,
+        lowJobs: 0,
         newJobs: 0,
         duplicates: 0,
         ignored: 0,
+        expired: 0,
         errors: 0,
+        accountsFailed: 0,
         rateLimited: false,
-        duration: 0
+        durationMs: 0,
+        status: 'running',
+        message: 'Scan already in progress'
       };
     }
 
     SchedulerService.isRunning = true;
+    SchedulerService.currentIndex = 0;
+    SchedulerService.totalPostsChecked = 0;
+    SchedulerService.totalReelsChecked = 0;
+    SchedulerService.totalJobsFound = 0;
+
     const startTimeMs = Date.now();
     let scanned = 0;
     let processed = 0;
@@ -66,6 +109,9 @@ export class SchedulerService {
     let ignoredOld = 0;
     let irrelevant = 0;
     let errors = 0;
+    let highCount = 0;
+    let mediumCount = 0;
+    let lowCount = 0;
 
     try {
       // 1. Get/Initialize AGENT_START_TIME state (Preserved across runs)
@@ -75,15 +121,29 @@ export class SchedulerService {
         logger.info(`[SCHEDULER] Agent status is STOPPED. Execution skipped.`);
         SchedulerService.isRunning = false;
         const res: ScanCycleResult = {
-          sourcesConfigured: 69,
+          sourcesConfigured: 73,
           sourcesChecked: 0,
+          sourcesSucceeded: 0,
+          sourcesFailed: 0,
+          postsChecked: 0,
+          reelsChecked: 0,
           postsFetched: 0,
+          reelsFetched: 0,
+          candidatesFound: 0,
+          relevantJobs: 0,
+          highJobs: 0,
+          mediumJobs: 0,
+          lowJobs: 0,
           newJobs: 0,
           duplicates: 0,
           ignored: 0,
+          expired: 0,
           errors: 0,
+          accountsFailed: 0,
           rateLimited: false,
-          duration: Date.now() - startTimeMs
+          durationMs: Date.now() - startTimeMs,
+          status: 'failed',
+          message: 'Agent status is STOPPED'
         };
         SchedulerService.lastScanResult = res;
         return res;
@@ -93,13 +153,14 @@ export class SchedulerService {
       const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
       logger.info(`[JOB SEARCH ENGINE] Booting manual scan cycle.`);
-      logger.info(`[JOB SEARCH ENGINE] 24-Hour Active Window Cutoff: ${formatIST(cutoff24h)}`);
-      logger.info(`[JOB SEARCH ENGINE] AGENT_START_TIME Cutoff: ${formatIST(agentState.agent_start_time)}`);
+      logger.info(`[JOB SEARCH ENGINE] NOW UTC: ${now.toISOString()} | IST: ${formatIST(now)}`);
+      logger.info(`[JOB SEARCH ENGINE] 24-Hour Active Cutoff UTC: ${cutoff24h.toISOString()} | IST: ${formatIST(cutoff24h)}`);
 
       // 2. Synchronize and load active Instagram sources
       await SourceService.syncMonitoredSources();
       const activeSources = await prisma.instagramSource.findMany({ where: { enabled: true } });
-      const sourcesConfigured = activeSources.length || 69;
+      const sourcesConfigured = activeSources.length || 73;
+      SchedulerService.totalSources = sourcesConfigured;
 
       const adapter = getInstagramAdapter();
       let fetchedPosts: RawInstagramPost[] = [];
@@ -113,26 +174,35 @@ export class SchedulerService {
         }
       } else {
         for (const source of activeSources) {
-          logger.info(`[JOB SEARCH ENGINE] Fetching feed for source: ${source.username}`);
+          SchedulerService.currentAccount = source.username;
+          SchedulerService.currentIndex++;
+          logger.info(`[SCAN] ${source.username}`);
+
           try {
             const singlePosts = await adapter.fetchLatestPosts(source.username);
             fetchedPosts.push(...singlePosts);
           } catch (fetchErr: any) {
-            logger.error(`[JOB SEARCH ENGINE] Failed to fetch posts from ${source.username}: ${fetchErr.message}`);
+            logger.error(`[ACCOUNT FAILED] ${source.username} reason=${fetchErr.message}`);
             errors++;
           }
         }
       }
 
+      // Process fetched posts
       for (const post of fetchedPosts) {
         scanned++;
+        if (post.postType === 'REEL') SchedulerService.totalReelsChecked++;
+        else SchedulerService.totalPostsChecked++;
 
         const pubTime = post.publishedAt || new Date();
+        const ageHours = (now.getTime() - pubTime.getTime()) / (1000 * 60 * 60);
+
+        logger.info(`[CANDIDATE CHECK] ID: ${post.id} | Account: ${post.sourceAccount} | Type: ${post.postType} | Published UTC: ${pubTime.toISOString()} | Age: ${ageHours.toFixed(2)}h`);
 
         // 3. 24-Hour Cutoff & AGENT_START_TIME Rule
         if (pubTime.getTime() < cutoff24h.getTime() || !isPostAfterStartTime(pubTime, agentState.agent_start_time)) {
           ignoredOld++;
-          logger.info(`[JOB SEARCH ENGINE] IGNORED (Older than 24h or pre-start): Post ${post.id} published ${formatIST(pubTime)}`);
+          logger.info(`[JOB SEARCH ENGINE] IGNORED (Older than 24h or pre-start): Post ${post.id} published ${formatIST(pubTime)} (Age: ${ageHours.toFixed(2)}h)`);
           continue;
         }
 
@@ -162,7 +232,12 @@ export class SchedulerService {
         const filterEvaluation = await FilterService.isMatch(jobResult);
         const isQualifyingJob = jobResult.isJobPost && filterEvaluation.matches;
 
-        if (!isQualifyingJob) {
+        if (isQualifyingJob) {
+          SchedulerService.totalJobsFound++;
+          if (jobResult.relevanceScore === 'HIGH') highCount++;
+          else if (jobResult.relevanceScore === 'MEDIUM') mediumCount++;
+          else lowCount++;
+        } else {
           irrelevant++;
         }
 
@@ -197,6 +272,7 @@ export class SchedulerService {
             logger.info(`[JOB SEARCH ENGINE] Race condition duplicate caught for post ${post.id}`);
             continue;
           }
+          logger.error(`[DB ERROR] Failed to create ProcessedPost record for ${post.id}: ${dbErr.message}`);
           throw dbErr;
         }
 
@@ -204,34 +280,40 @@ export class SchedulerService {
         if (isQualifyingJob) {
           logger.info(`[JOB CANDIDATE]\nusername=${post.sourceAccount}\nmediaType=${post.postType}\nshortcode=${post.id}\npublishedAt=${formatIST(pubTime)}\ntitle=${jobResult.role}\ncompany=${jobResult.company}\nlocation=${jobResult.location}\nrelevance=${jobResult.relevanceScore}\nrelevanceReason=${jobResult.relevanceReason || 'Matched Keywords'}\napplicationUrl=${jobResult.applicationUrl || 'none'}\ntestUrl=${jobResult.testUrl || 'none'}\ninterviewUrl=${jobResult.interviewUrl || 'none'}`);
 
-          await prisma.jobAlert.create({
-            data: {
-              processed_post_id: processedRecord.id,
-              company: jobResult.company,
-              role: jobResult.role,
-              location: jobResult.location,
-              experience: jobResult.experience,
-              salary: jobResult.salary,
-              employment_type: jobResult.employmentType,
-              work_mode: jobResult.workMode,
-              skills: jobResult.skills,
-              education: jobResult.education,
-              deadline: jobResult.deadline,
-              application_method: jobResult.applicationMethod,
-              application_link: jobResult.applicationLink,
-              application_url: jobResult.applicationUrl || null,
-              interview_url: jobResult.interviewUrl || null,
-              test_url: jobResult.testUrl || null,
-              external_url: jobResult.externalUrl || null,
-              relevance_reason: jobResult.relevanceReason || null,
-              contact_information: jobResult.contactInformation,
-              reason: filterEvaluation.reason,
-              notification_sent: false,
-              notification_sent_at: null,
-              email_sent: false,
-              email_sent_at: null
-            }
-          });
+          try {
+            await prisma.jobAlert.create({
+              data: {
+                processed_post_id: processedRecord.id,
+                company: jobResult.company,
+                role: jobResult.role,
+                location: jobResult.location,
+                experience: jobResult.experience,
+                salary: jobResult.salary,
+                employment_type: jobResult.employmentType,
+                work_mode: jobResult.workMode,
+                skills: jobResult.skills,
+                education: jobResult.education,
+                deadline: jobResult.deadline,
+                application_method: jobResult.applicationMethod,
+                application_link: jobResult.applicationLink,
+                application_url: jobResult.applicationUrl || null,
+                interview_url: jobResult.interviewUrl || null,
+                test_url: jobResult.testUrl || null,
+                external_url: jobResult.externalUrl || null,
+                relevance_reason: jobResult.relevanceReason || null,
+                contact_information: jobResult.contactInformation,
+                reason: filterEvaluation.reason,
+                notification_sent: false,
+                notification_sent_at: null,
+                email_sent: false,
+                email_sent_at: null
+              }
+            });
+
+            logger.info(`[DB INSERT SUCCESS] JobAlert created for post ${post.id} (${jobResult.role} at ${jobResult.company})`);
+          } catch (dbAlertErr: any) {
+            logger.error(`[DB ERROR] Failed to create JobAlert record for ${post.id}: ${dbAlertErr.message}`);
+          }
         }
       }
 
@@ -245,32 +327,77 @@ export class SchedulerService {
         }
       });
 
-      // 6. Save Successful Checkpoint Timestamp
+      // Save Successful Checkpoint Timestamp
       await AgentStateService.updateLastSuccessfulCheck(new Date());
 
       const durationMs = Date.now() - startTimeMs;
-      const sourcesChecked = (adapter as any).sourcesChecked || sourcesConfigured;
+      const sourcesChecked = (adapter as any).sourcesChecked || 0;
       const rateLimited = (adapter as any).rateLimited || false;
       const adapterErrors = (adapter as any).errorsCount || 0;
+      const sourcesSucceeded = rateLimited ? Math.max(0, sourcesChecked - 1) : sourcesChecked;
+      const sourcesFailed = Math.max(0, sourcesConfigured - sourcesSucceeded);
 
-      logger.info(`[JOB SEARCH ENGINE] Scan complete in ${durationMs}ms. Sources checked: ${sourcesChecked}/${sourcesConfigured}. Posts: ${scanned}, Jobs Found: ${processed - irrelevant}, Duplicates: ${duplicates}, Ignored: ${ignoredOld + irrelevant}, Errors: ${errors + adapterErrors}, RateLimited: ${rateLimited}`);
+      // Determine explicit status
+      let finalStatus: 'completed' | 'partial' | 'failed' = 'completed';
+      let statusMessage = `Scan completed successfully (${sourcesSucceeded}/${sourcesConfigured} checked)`;
+
+      if (sourcesChecked === 0 || sourcesSucceeded === 0) {
+        finalStatus = 'failed';
+        statusMessage = rateLimited 
+          ? 'Scan failed: Instagram HTTP 429 Rate Limit encountered on initial account'
+          : 'Scan failed: Instagram data could not be retrieved from monitored accounts';
+      } else if (sourcesChecked < sourcesConfigured || rateLimited || sourcesFailed > 0) {
+        finalStatus = 'partial';
+        statusMessage = `Scan partial: ${sourcesSucceeded}/${sourcesConfigured} accounts checked (${sourcesFailed} rate-limited/failed)`;
+      }
+
+      logger.info(`
+========== SCAN SUMMARY ==========
+Sources configured: ${sourcesConfigured}
+Sources checked: ${sourcesChecked}
+Sources succeeded: ${sourcesSucceeded}
+Sources failed: ${sourcesFailed}
+Posts checked: ${SchedulerService.totalPostsChecked}
+Reels checked: ${SchedulerService.totalReelsChecked}
+Candidates: ${scanned}
+Relevant jobs: ${highCount + mediumCount + lowCount}
+High: ${highCount}
+Medium: ${mediumCount}
+Low: ${lowCount}
+New jobs: ${processed - irrelevant}
+Duplicates: ${duplicates}
+Expired: ${ignoredOld}
+Rate limited: ${rateLimited}
+Errors: ${errors + adapterErrors}
+Duration: ${durationMs}ms
+Status: ${finalStatus} (${statusMessage})
+==================================`);
 
       const resultPayload: ScanCycleResult = {
         sourcesConfigured,
         sourcesChecked,
+        sourcesSucceeded,
+        sourcesFailed,
+        postsChecked: SchedulerService.totalPostsChecked,
+        reelsChecked: SchedulerService.totalReelsChecked,
         postsFetched: scanned,
+        reelsFetched: SchedulerService.totalReelsChecked,
+        candidatesFound: scanned,
+        relevantJobs: highCount + mediumCount + lowCount,
+        highJobs: highCount,
+        mediumJobs: mediumCount,
+        lowJobs: lowCount,
         newJobs: processed - irrelevant,
         duplicates,
         ignored: ignoredOld + irrelevant,
-        errors: errors + adapterErrors,
+        expired: ignoredOld,
         rateLimited,
+        errors: errors + adapterErrors,
+        accountsFailed: sourcesFailed,
+        durationMs,
         duration: durationMs,
-        scanned,
-        processed,
-        jobsFound: processed - irrelevant,
-        ignoredOld,
-        irrelevant,
-        durationMs
+        status: finalStatus,
+        message: statusMessage
       };
 
       SchedulerService.lastScanResult = resultPayload;
@@ -280,15 +407,30 @@ export class SchedulerService {
       logger.error(`[JOB SEARCH ENGINE] Fatal error in scan cycle: ${err.message}`);
       await AgentStateService.setStatus('ERROR', err.message);
       const errRes: ScanCycleResult = {
-        sourcesConfigured: 69,
+        sourcesConfigured: 73,
         sourcesChecked: 0,
+        sourcesSucceeded: 0,
+        sourcesFailed: 73,
+        postsChecked: 0,
+        reelsChecked: 0,
         postsFetched: 0,
+        reelsFetched: 0,
+        candidatesFound: 0,
+        relevantJobs: 0,
+        highJobs: 0,
+        mediumJobs: 0,
+        lowJobs: 0,
         newJobs: 0,
         duplicates: 0,
         ignored: 0,
+        expired: 0,
         errors: errors + 1,
+        accountsFailed: 73,
         rateLimited: false,
-        duration: Date.now() - startTimeMs
+        durationMs: Date.now() - startTimeMs,
+        duration: Date.now() - startTimeMs,
+        status: 'failed',
+        message: `Fatal error during scan: ${err.message}`
       };
       SchedulerService.lastScanResult = errRes;
       return errRes;

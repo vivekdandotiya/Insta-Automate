@@ -232,6 +232,7 @@ router.get('/stats', async (req: Request, res: Response) => {
       todaysJobsCount,
       newJobsCount,
       highRelevanceCount,
+      highRelevanceAllTimeCount,
       totalPostsScanned,
       agentState
     ] = await Promise.all([
@@ -245,6 +246,13 @@ router.get('/stats', async (req: Request, res: Response) => {
         where: {
           classification: 'JOB_POST',
           published_at: { gte: twentyFourHoursAgo }
+        }
+      }),
+      prisma.processedPost.count({
+        where: {
+          classification: 'JOB_POST',
+          published_at: { gte: twentyFourHoursAgo },
+          relevance_score: 'HIGH'
         }
       }),
       prisma.processedPost.count({
@@ -262,6 +270,7 @@ router.get('/stats', async (req: Request, res: Response) => {
         todaysJobsCount,
         newJobsCount,
         highRelevanceCount,
+        highRelevanceAllTimeCount,
         monitoredAccounts,
         totalPostsScanned,
         agentStatus: agentState.status,

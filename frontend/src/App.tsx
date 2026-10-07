@@ -127,28 +127,34 @@ export default function App() {
           const pollInterval = setInterval(async () => {
             try {
               const statusRes = await api.get('/api/jobs/scan-status');
-              if (statusRes.data.success && !statusRes.data.data.isScanning) {
-                clearInterval(pollInterval);
-                setScanResult(statusRes.data.data.lastScanResult);
-                await fetchJobsData();
-                setIsScanning(false);
-                setScanMessage('');
+              if (statusRes.data.success) {
+                const prog = statusRes.data.data.progress;
+                if (prog && prog.currentAccount) {
+                  setScanMessage(`Scanning ${prog.currentIndex || 0}/${prog.totalSources || 73} accounts (${prog.currentAccount})...`);
+                }
+                if (!statusRes.data.data.isScanning) {
+                  clearInterval(pollInterval);
+                  setScanResult(statusRes.data.data.lastScanResult);
+                  await fetchJobsData();
+                  setIsScanning(false);
+                  setScanMessage('');
+                }
               }
             } catch (err) {
               console.error('Polling scan status error:', err);
             }
-          }, 3000);
+          }, 2500);
           return;
         }
 
         setScanResult(res.data.data);
         await fetchJobsData();
       } else {
-        alert(res.data.error || 'Scan failed');
+        alert(res.data.message || res.data.error || 'Scan failed');
       }
     } catch (e: any) {
       clearTimeout(messageTimer);
-      alert(e.response?.data?.error || e.message || 'Failed to trigger scan cycle');
+      alert(e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to trigger scan cycle');
     } finally {
       if (!keepScanningState) {
         setIsScanning(false);
@@ -189,7 +195,11 @@ export default function App() {
   const getStatusBadge = () => {
     if (isScanning) return { label: 'SCANNING', color: 'bg-amber-500 animate-pulse text-amber-950 font-bold' };
     if (stats?.agentStatus === 'ERROR') return { label: 'ERROR', color: 'bg-rose-500 text-white font-bold' };
-    if (scanResult) return { label: 'COMPLETED', color: 'bg-emerald-500 text-emerald-950 font-bold' };
+    if (scanResult) {
+      if (scanResult.status === 'failed') return { label: 'FAILED', color: 'bg-rose-600 text-white font-bold' };
+      if (scanResult.status === 'partial') return { label: 'PARTIAL', color: 'bg-amber-500 text-amber-950 font-bold' };
+      return { label: 'COMPLETED', color: 'bg-emerald-500 text-emerald-950 font-bold' };
+    }
     return { label: 'READY', color: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' };
   };
 
@@ -242,14 +252,20 @@ export default function App() {
 
       {/* SCAN RESULTS BANNER */}
       {scanResult && (
-        <div className="bg-blue-950/90 border-b border-blue-800 px-3 sm:px-6 py-2 flex items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 text-blue-200 truncate">
-            <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+        <div className={`border-b px-3 sm:px-6 py-2.5 flex items-center justify-between gap-2 text-xs font-medium ${
+          scanResult.status === 'failed' ? 'bg-rose-950/90 border-rose-800 text-rose-200' :
+          scanResult.status === 'partial' ? 'bg-amber-950/90 border-amber-800 text-amber-200' :
+          'bg-blue-950/90 border-blue-800 text-blue-200'
+        }`}>
+          <div className="flex items-center gap-2 truncate">
+            {scanResult.status === 'failed' ? <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" /> :
+             scanResult.status === 'partial' ? <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" /> :
+             <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />}
             <span className="truncate">
-              <strong>SCAN COMPLETE:</strong> {scanResult.jobsFound ?? scanResult.processed} new jobs • {scanResult.duplicates} duplicates • {scanResult.ignoredOld} older than 24h
+              <strong>SCAN {scanResult.status ? scanResult.status.toUpperCase() : 'COMPLETE'}:</strong> {scanResult.sourcesSucceeded ?? scanResult.sourcesChecked}/{scanResult.sourcesConfigured ?? 73} sources checked • {scanResult.newJobs ?? scanResult.jobsFound ?? 0} new jobs found • {scanResult.duplicates ?? 0} duplicates • {scanResult.expired ?? scanResult.ignoredOld ?? 0} older than 24h {scanResult.message ? `(${scanResult.message})` : ''}
             </span>
           </div>
-          <button onClick={() => setScanResult(null)} className="text-blue-400 hover:text-white font-bold text-xs p-1">✕</button>
+          <button onClick={() => setScanResult(null)} className="hover:text-white font-bold text-xs p-1">✕</button>
         </div>
       )}
 
