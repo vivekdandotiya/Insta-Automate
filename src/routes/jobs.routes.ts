@@ -329,6 +329,45 @@ router.get('/history', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/jobs/health & /instagram-health - Diagnostic Instagram connectivity test (Requirement 6)
+ */
+router.get(['/health', '/instagram-health'], async (req: Request, res: Response) => {
+  try {
+    const healthResult = await SchedulerService.runInstagramHealthCheck();
+    res.json({
+      success: true,
+      data: healthResult
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/jobs/status - Retrieve current live scan progress & status
+ */
+router.get('/status', (req: Request, res: Response) => {
+  const scanStatus = SchedulerService.getScanStatus();
+  res.json({
+    success: true,
+    status: scanStatus.status,
+    data: scanStatus
+  });
+});
+
+/**
+ * GET /api/jobs/scan-status - Alias for retrieve current scan status
+ */
+router.get('/scan-status', (req: Request, res: Response) => {
+  const scanStatus = SchedulerService.getScanStatus();
+  res.json({
+    success: true,
+    status: scanStatus.status,
+    data: scanStatus
+  });
+});
+
+/**
  * GET /api/jobs/:id - Single job details
  */
 router.get('/:id', async (req: Request, res: Response) => {
@@ -410,45 +449,6 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
-});
-
-/**
- * GET /api/jobs/health & /instagram-health - Diagnostic Instagram connectivity test (Requirement 6)
- */
-router.get(['/health', '/instagram-health'], async (req: Request, res: Response) => {
-  try {
-    const healthResult = await SchedulerService.runInstagramHealthCheck();
-    res.json({
-      success: true,
-      data: healthResult
-    });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
- * GET /api/jobs/status - Retrieve current live scan progress & status
- */
-router.get('/status', (req: Request, res: Response) => {
-  const scanStatus = SchedulerService.getScanStatus();
-  res.json({
-    success: true,
-    status: scanStatus.status,
-    data: scanStatus
-  });
-});
-
-/**
- * GET /api/jobs/scan-status - Alias for retrieve current scan status
- */
-router.get('/scan-status', (req: Request, res: Response) => {
-  const scanStatus = SchedulerService.getScanStatus();
-  res.json({
-    success: true,
-    status: scanStatus.status,
-    data: scanStatus
-  });
 });
 
 /**
