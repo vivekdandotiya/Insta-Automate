@@ -109,57 +109,61 @@ export default function App() {
     if (isScanning) return;
     setIsScanning(true);
     setScanResult(null);
-    setScanMessage('Waking scanner...');
-
-    const messageTimer = setTimeout(() => {
-      setScanMessage('Scanning 73 Instagram job sources...');
-    }, 3000);
-
-    let keepScanningState = false;
+    setScanMessage('Starting background scan...');
 
     try {
-      const res = await api.post('/api/jobs/scan', {}, { timeout: 180000 });
-      clearTimeout(messageTimer);
+      const res = await api.post('/api/jobs/scan');
       if (res.data.success) {
-        if (res.data.data?.isScanning) {
-          keepScanningState = true;
-          setScanMessage('Scanning Reels & Posts in background...');
-          const pollInterval = setInterval(async () => {
-            try {
-              const statusRes = await api.get('/api/jobs/scan-status');
-              if (statusRes.data.success) {
-                const prog = statusRes.data.data.progress;
-                if (prog && prog.currentAccount) {
-                  setScanMessage(`Scanning ${prog.currentIndex || 0}/${prog.totalSources || 73} accounts (${prog.currentAccount})...`);
-                }
-                if (!statusRes.data.data.isScanning) {
-                  clearInterval(pollInterval);
-                  setScanResult(statusRes.data.data.lastScanResult);
-                  await fetchJobsData();
-                  setIsScanning(false);
-                  setScanMessage('');
+        setScanMessage('Scan running in background...');
+
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await api.get('/api/jobs/status');
+            if (statusRes.data.success) {
+              const data = statusRes.data.data;
+              const prog = data.progress || data;
+              const isStillScanning = data.isScanning;
+
+              if (prog) {
+                const currentAcc = prog.currentAccount || '';
+                const idx = prog.currentIndex || 0;
+                const total = prog.totalSources || 73;
+                const jobsCount = prog.jobsFound || 0;
+                const sec = prog.elapsedSeconds || 0;
+                const minsStr = Math.floor(sec / 60).toString().padStart(2, '0');
+                const secsStr = (sec % 60).toString().padStart(2, '0');
+                const timeStr = `${minsStr}:${secsStr}`;
+
+                if (prog.message && prog.message.includes('waiting')) {
+                  setScanMessage(`${prog.message} (${timeStr})`);
+                } else if (currentAcc) {
+                  setScanMessage(`Scanning ${idx}/${total}: ${currentAcc} (Jobs: ${jobsCount} | ${timeStr})`);
+                } else {
+                  setScanMessage(`Scanning ${total} accounts... (${timeStr})`);
                 }
               }
-            } catch (err) {
-              console.error('Polling scan status error:', err);
-            }
-          }, 2500);
-          return;
-        }
 
-        setScanResult(res.data.data);
-        await fetchJobsData();
+              if (!isStillScanning) {
+                clearInterval(pollInterval);
+                setScanResult(data.lastScanResult);
+                await fetchJobsData();
+                setIsScanning(false);
+                setScanMessage('');
+              }
+            }
+          } catch (pollErr) {
+            console.error('Polling scan status error:', pollErr);
+          }
+        }, 2500);
       } else {
-        alert(res.data.message || res.data.error || 'Scan failed');
-      }
-    } catch (e: any) {
-      clearTimeout(messageTimer);
-      alert(e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to trigger scan cycle');
-    } finally {
-      if (!keepScanningState) {
         setIsScanning(false);
         setScanMessage('');
+        alert(res.data.message || res.data.error || 'Scan failed to start');
       }
+    } catch (e: any) {
+      setIsScanning(false);
+      setScanMessage('');
+      alert(e.response?.data?.message || e.response?.data?.error || e.message || 'Failed to trigger scan cycle');
     }
   };
 

@@ -4,8 +4,9 @@ import { RuleClassifier } from '../src/services/ruleClassifier.js';
 import { FilterService } from '../src/services/filter.service.js';
 import { getMonitoredInstagramAccounts, DEFAULT_MONITORED_ACCOUNTS } from '../src/config/sources.config.js';
 import { getInstagramAdapter } from '../src/services/instagram/factory.js';
+import { SchedulerService } from '../src/services/scheduler.service.js';
 
-describe('Comprehensive Production Audit & Test Suite (Prompt 6 Update)', () => {
+describe('Comprehensive Production Audit & Test Suite (Prompt 7 Reliable Scan Update)', () => {
   const agentStartTime = new Date('2026-10-03T13:30:00.000Z');
 
   // 1. INSTALOADER ADAPTER INITIALIZATION
@@ -36,7 +37,7 @@ describe('Comprehensive Production Audit & Test Suite (Prompt 6 Update)', () => 
     expect(accounts).toContain('talkingmohit');
   });
 
-  // 3. CISCO REEL END-TO-END RELEVANCE & DETECTION TEST (PROMPT 6 CRITICAL)
+  // 3. CISCO REEL END-TO-END RELEVANCE & DETECTION TEST
   it('Section 16: Detects Cisco Talent Acquisition Coordinator Trainee Reel from @karrar_hussain_jobs', () => {
     const ciscoCaption = `Cisco is hiring for:
     Talent Acquisition Coordinator Trainee
@@ -58,7 +59,7 @@ describe('Comprehensive Production Audit & Test Suite (Prompt 6 Update)', () => 
     expect(res.relevanceScore).toBe('HIGH');
   });
 
-  // 4. URL EXTRACTION WITH NEWLINES AND PUNCTUATION (SECTION 17)
+  // 4. URL EXTRACTION WITH NEWLINES AND PUNCTUATION
   it('Section 17: Robustly extracts URLs formatted across newlines and punctuation', () => {
     const captionWithMultiLineUrls = `Urgent Opening for Software Developer!
     Apply link:
@@ -77,7 +78,7 @@ describe('Comprehensive Production Audit & Test Suite (Prompt 6 Update)', () => 
     expect(res.interviewUrl).toBe('https://company.com/interview/walkin');
   });
 
-  // 5. EXTENDED KEYWORD COMBINATION TESTS (SECTION 23 - 50 TESTS COVERAGE)
+  // 5. EXTENDED KEYWORD COMBINATION TESTS (PRESERVING ALL 289+ KEYWORDS)
   it('Section 23: Verifies keywords coverage across all target categories', () => {
     const testCases = [
       { text: 'bulk hiring for Software Developer in Noida', expectedRole: 'Software Engineer / SDE' },
@@ -120,5 +121,14 @@ describe('Comprehensive Production Audit & Test Suite (Prompt 6 Update)', () => 
 
     expect(isPostAfterStartTime(preStartPost, agentStartTime)).toBe(false);
     expect(isPostAfterStartTime(postStartPost, agentStartTime)).toBe(true);
+  });
+
+  // 8. RELIABLE SCAN PIPELINE: STATUS MODEL & LOCK GUARD
+  it('Requirement 13 & 26: SchedulerService provides accurate scan status and lock tracking', () => {
+    const initialStatus = SchedulerService.getScanStatus();
+    expect(initialStatus).toBeDefined();
+    expect(initialStatus.isScanning).toBe(false);
+    expect(initialStatus.totalSources).toBe(73);
+    expect(['READY', 'COMPLETED', 'PARTIAL', 'FAILED']).toContain(initialStatus.status);
   });
 });

@@ -14,6 +14,7 @@ export interface ScanCycleResult {
   sourcesChecked: number;
   sourcesSucceeded: number;
   sourcesFailed: number;
+  sourcesRateLimited?: number;
   postsChecked: number;
   reelsChecked: number;
   postsFetched: number;
@@ -44,20 +45,55 @@ export class SchedulerService {
   public static currentAccount: string = '';
   public static currentIndex: number = 0;
   public static totalSources: number = 73;
+  public static sourcesSucceeded: number = 0;
+  public static sourcesFailed: number = 0;
+  public static sourcesRateLimited: number = 0;
   public static totalPostsChecked: number = 0;
   public static totalReelsChecked: number = 0;
   public static totalJobsFound: number = 0;
+  public static newJobsFound: number = 0;
+  public static duplicatesFound: number = 0;
+  public static elapsedSeconds: number = 0;
+  public static statusMessage: string = '';
 
   public static getScanStatus() {
+    const isScanning = SchedulerService.isRunning;
+    const currentStatus = isScanning 
+      ? 'RUNNING' 
+      : (SchedulerService.lastScanResult?.status?.toUpperCase() || 'READY');
+
     return {
-      isScanning: SchedulerService.isRunning,
+      isScanning,
+      status: currentStatus,
+      currentAccount: SchedulerService.currentAccount,
+      currentIndex: SchedulerService.currentIndex,
+      totalSources: SchedulerService.totalSources,
+      sourcesSucceeded: SchedulerService.sourcesSucceeded,
+      sourcesFailed: SchedulerService.sourcesFailed,
+      sourcesRateLimited: SchedulerService.sourcesRateLimited,
+      postsChecked: SchedulerService.totalPostsChecked,
+      reelsChecked: SchedulerService.totalReelsChecked,
+      jobsFound: SchedulerService.totalJobsFound,
+      newJobs: SchedulerService.newJobsFound,
+      duplicates: SchedulerService.duplicatesFound,
+      elapsedSeconds: SchedulerService.elapsedSeconds,
+      rateLimited: (SchedulerService.sourcesRateLimited > 0),
+      message: SchedulerService.statusMessage || (isScanning ? 'Scanning Instagram accounts...' : 'Scan idle'),
       progress: {
         currentAccount: SchedulerService.currentAccount,
         currentIndex: SchedulerService.currentIndex,
         totalSources: SchedulerService.totalSources,
+        sourcesSucceeded: SchedulerService.sourcesSucceeded,
+        sourcesFailed: SchedulerService.sourcesFailed,
+        sourcesRateLimited: SchedulerService.sourcesRateLimited,
         postsChecked: SchedulerService.totalPostsChecked,
         reelsChecked: SchedulerService.totalReelsChecked,
-        jobsFound: SchedulerService.totalJobsFound
+        jobsFound: SchedulerService.totalJobsFound,
+        newJobs: SchedulerService.newJobsFound,
+        duplicates: SchedulerService.duplicatesFound,
+        elapsedSeconds: SchedulerService.elapsedSeconds,
+        rateLimited: (SchedulerService.sourcesRateLimited > 0),
+        message: SchedulerService.statusMessage
       },
       lastScanResult: SchedulerService.lastScanResult
     };
@@ -74,6 +110,7 @@ export class SchedulerService {
         sourcesChecked: 0,
         sourcesSucceeded: 0,
         sourcesFailed: 0,
+        sourcesRateLimited: 0,
         postsChecked: 0,
         reelsChecked: 0,
         postsFetched: 0,
@@ -91,6 +128,7 @@ export class SchedulerService {
         accountsFailed: 0,
         rateLimited: false,
         durationMs: 0,
+        duration: 0,
         status: 'running',
         message: 'Scan already in progress'
       };
@@ -98,11 +136,23 @@ export class SchedulerService {
 
     SchedulerService.isRunning = true;
     SchedulerService.currentIndex = 0;
+    SchedulerService.currentAccount = '';
+    SchedulerService.sourcesSucceeded = 0;
+    SchedulerService.sourcesFailed = 0;
+    SchedulerService.sourcesRateLimited = 0;
     SchedulerService.totalPostsChecked = 0;
     SchedulerService.totalReelsChecked = 0;
     SchedulerService.totalJobsFound = 0;
+    SchedulerService.newJobsFound = 0;
+    SchedulerService.duplicatesFound = 0;
+    SchedulerService.elapsedSeconds = 0;
+    SchedulerService.statusMessage = 'Starting background scan...';
 
     const startTimeMs = Date.now();
+    const elapsedTimer = setInterval(() => {
+      SchedulerService.elapsedSeconds = Math.floor((Date.now() - startTimeMs) / 1000);
+    }, 1000);
+
     let scanned = 0;
     let processed = 0;
     let duplicates = 0;
@@ -125,6 +175,7 @@ export class SchedulerService {
           sourcesChecked: 0,
           sourcesSucceeded: 0,
           sourcesFailed: 0,
+          sourcesRateLimited: 0,
           postsChecked: 0,
           reelsChecked: 0,
           postsFetched: 0,
@@ -142,6 +193,7 @@ export class SchedulerService {
           accountsFailed: 0,
           rateLimited: false,
           durationMs: Date.now() - startTimeMs,
+          duration: Date.now() - startTimeMs,
           status: 'failed',
           message: 'Agent status is STOPPED'
         };
@@ -181,8 +233,10 @@ export class SchedulerService {
           try {
             const singlePosts = await adapter.fetchLatestPosts(source.username);
             fetchedPosts.push(...singlePosts);
+            SchedulerService.sourcesSucceeded++;
           } catch (fetchErr: any) {
             logger.error(`[ACCOUNT FAILED] ${source.username} reason=${fetchErr.message}`);
+            SchedulerService.sourcesFailed++;
             errors++;
           }
         }
@@ -213,6 +267,7 @@ export class SchedulerService {
 
         if (existingPost) {
           duplicates++;
+          SchedulerService.duplicatesFound = duplicates;
           logger.info(`[JOB SEARCH ENGINE] DUPLICATE IGNORED: Post ${post.id} already exists in database.`);
           continue;
         }
@@ -242,6 +297,7 @@ export class SchedulerService {
         }
 
         processed++;
+        SchedulerService.newJobsFound = processed - irrelevant;
         const detectedAt = new Date();
         const expiresAt = new Date(pubTime.getTime() + 24 * 60 * 60 * 1000);
 
@@ -269,6 +325,7 @@ export class SchedulerService {
         } catch (dbErr: any) {
           if (dbErr.code === 'P2002') {
             duplicates++;
+            SchedulerService.duplicatesFound = duplicates;
             logger.info(`[JOB SEARCH ENGINE] Race condition duplicate caught for post ${post.id}`);
             continue;
           }
@@ -332,30 +389,34 @@ export class SchedulerService {
 
       const durationMs = Date.now() - startTimeMs;
       const sourcesChecked = (adapter as any).sourcesChecked || 0;
+      const sourcesSucceeded = (adapter as any).sourcesSucceeded ?? (sourcesChecked > 0 ? sourcesChecked : 0);
+      const sourcesFailed = (adapter as any).sourcesFailed ?? 0;
+      const sourcesRateLimited = (adapter as any).sourcesRateLimited ?? 0;
       const rateLimited = (adapter as any).rateLimited || false;
       const adapterErrors = (adapter as any).errorsCount || 0;
-      const sourcesSucceeded = rateLimited ? Math.max(0, sourcesChecked - 1) : sourcesChecked;
-      const sourcesFailed = Math.max(0, sourcesConfigured - sourcesSucceeded);
 
       // Determine explicit status
       let finalStatus: 'completed' | 'partial' | 'failed' = 'completed';
-      let statusMessage = `Scan completed successfully (${sourcesSucceeded}/${sourcesConfigured} checked)`;
+      let statusMessage = `Scan completed (${sourcesSucceeded}/${sourcesConfigured} sources checked)`;
 
       if (sourcesChecked === 0 || sourcesSucceeded === 0) {
         finalStatus = 'failed';
-        statusMessage = rateLimited 
-          ? 'Scan failed: Instagram HTTP 429 Rate Limit encountered on initial account'
-          : 'Scan failed: Instagram data could not be retrieved from monitored accounts';
-      } else if (sourcesChecked < sourcesConfigured || rateLimited || sourcesFailed > 0) {
+        statusMessage = (sourcesRateLimited > 0 || rateLimited) 
+          ? `Scan failed: 0/${sourcesConfigured} sources checked (Instagram rate limited)`
+          : `Scan failed: 0/${sourcesConfigured} sources checked (Data connection failed)`;
+      } else if (sourcesChecked < sourcesConfigured || sourcesRateLimited > 0 || sourcesFailed > 0) {
         finalStatus = 'partial';
-        statusMessage = `Scan partial: ${sourcesSucceeded}/${sourcesConfigured} accounts checked (${sourcesFailed} rate-limited/failed)`;
+        statusMessage = `Scan partial: ${sourcesSucceeded}/${sourcesConfigured} sources checked (${sourcesRateLimited} rate-limited, ${sourcesFailed} failed)`;
       }
+
+      SchedulerService.statusMessage = statusMessage;
 
       logger.info(`
 ========== SCAN SUMMARY ==========
 Sources configured: ${sourcesConfigured}
 Sources checked: ${sourcesChecked}
 Sources succeeded: ${sourcesSucceeded}
+Sources rate limited: ${sourcesRateLimited}
 Sources failed: ${sourcesFailed}
 Posts checked: ${SchedulerService.totalPostsChecked}
 Reels checked: ${SchedulerService.totalReelsChecked}
@@ -369,7 +430,7 @@ Duplicates: ${duplicates}
 Expired: ${ignoredOld}
 Rate limited: ${rateLimited}
 Errors: ${errors + adapterErrors}
-Duration: ${durationMs}ms
+Duration: ${(durationMs / 1000).toFixed(1)}s
 Status: ${finalStatus} (${statusMessage})
 ==================================`);
 
@@ -378,6 +439,7 @@ Status: ${finalStatus} (${statusMessage})
         sourcesChecked,
         sourcesSucceeded,
         sourcesFailed,
+        sourcesRateLimited,
         postsChecked: SchedulerService.totalPostsChecked,
         reelsChecked: SchedulerService.totalReelsChecked,
         postsFetched: scanned,
@@ -411,6 +473,7 @@ Status: ${finalStatus} (${statusMessage})
         sourcesChecked: 0,
         sourcesSucceeded: 0,
         sourcesFailed: 73,
+        sourcesRateLimited: 0,
         postsChecked: 0,
         reelsChecked: 0,
         postsFetched: 0,
@@ -435,6 +498,7 @@ Status: ${finalStatus} (${statusMessage})
       SchedulerService.lastScanResult = errRes;
       return errRes;
     } finally {
+      clearInterval(elapsedTimer);
       SchedulerService.isRunning = false;
     }
   }

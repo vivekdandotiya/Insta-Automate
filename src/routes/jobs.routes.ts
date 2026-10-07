@@ -413,60 +413,57 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/jobs/scan-status - Retrieve current scan status & last scan result
+ * GET /api/jobs/status - Retrieve current live scan progress & status
  */
-router.get('/scan-status', (req: Request, res: Response) => {
+router.get('/status', (req: Request, res: Response) => {
+  const scanStatus = SchedulerService.getScanStatus();
   res.json({
     success: true,
-    data: SchedulerService.getScanStatus()
+    status: scanStatus.status,
+    data: scanStatus
   });
 });
 
 /**
- * POST /api/jobs/scan - Manual trigger check cycle (Requirement 1 & 15)
+ * GET /api/jobs/scan-status - Alias for retrieve current scan status
+ */
+router.get('/scan-status', (req: Request, res: Response) => {
+  const scanStatus = SchedulerService.getScanStatus();
+  res.json({
+    success: true,
+    status: scanStatus.status,
+    data: scanStatus
+  });
+});
+
+/**
+ * POST /api/jobs/scan - Trigger background check cycle (Async, non-blocking HTTP)
  */
 router.post('/scan', async (req: Request, res: Response) => {
   console.log(`[SCAN REQUEST] POST /api/jobs/scan received from ${req.ip || 'unknown'}`);
-  console.log(`[SCAN REQUEST] User-Agent: ${req.get('user-agent') || 'none'}`);
-  console.log(`[SCAN REQUEST] Origin: ${req.get('origin') || 'none'}`);
 
   try {
     if (SchedulerService.isRunning) {
-      console.log('[SCAN REQUEST] Scan already in progress. Returning background status.');
+      console.log('[SCAN REQUEST] Scan cycle already in progress. Returning background status.');
       return res.json({
         success: true,
+        status: 'RUNNING',
         message: 'Scan cycle already in progress',
         data: SchedulerService.getScanStatus()
       });
     }
 
-    // Race execution for up to 20 seconds to return fast sync response or delegate to background
-    const scanPromise = SchedulerService.executeCheckCycle();
-
-    let isTimedOut = false;
-    const timeoutPromise = new Promise<'TIMEOUT'>((resolve) => {
-      setTimeout(() => {
-        isTimedOut = true;
-        resolve('TIMEOUT');
-      }, 20000);
+    // Launch background scan cycle without awaiting
+    SchedulerService.executeCheckCycle().catch(err => {
+      console.error(`[BACKGROUND SCAN FATAL ERROR] ${err.message}`);
     });
 
-    const result = await Promise.race([scanPromise, timeoutPromise]);
-
-    if (result === 'TIMEOUT' || isTimedOut) {
-      console.log('[SCAN REQUEST] Scan taking longer than 20s. Returning background status response.');
-      return res.json({
-        success: true,
-        message: 'Scan cycle started in background',
-        data: SchedulerService.getScanStatus()
-      });
-    }
-
-    console.log('[SCAN REQUEST] Scan completed synchronously.');
+    console.log('[SCAN REQUEST] Background scan process launched successfully.');
     return res.json({
       success: true,
-      message: 'Instagram job scan cycle completed',
-      data: result
+      status: 'RUNNING',
+      message: 'Scan cycle started in background',
+      data: SchedulerService.getScanStatus()
     });
   } catch (err: any) {
     console.error(`[SCAN REQUEST ERROR] ${err.message}`);
