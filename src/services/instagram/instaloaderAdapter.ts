@@ -9,6 +9,7 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
   public sourcesSucceeded: number = 0;
   public sourcesFailed: number = 0;
   public sourcesRateLimited: number = 0;
+  public sourcesTimedOut: number = 0;
   public rateLimited: boolean = false;
   public errorsCount: number = 0;
 
@@ -21,6 +22,7 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
     this.sourcesSucceeded = 0;
     this.sourcesFailed = 0;
     this.sourcesRateLimited = 0;
+    this.sourcesTimedOut = 0;
     this.rateLimited = false;
     this.errorsCount = 0;
 
@@ -30,23 +32,28 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
 
     if (cleanUsernames.length === 0) return [];
 
-    logger.info(`[INSTALOADER ADAPTER] Starting safe sequential fetch for ${cleanUsernames.length} public accounts...`);
+    logger.info(`[INSTALOADER ADAPTER] Starting safe bounded sequential fetch for ${cleanUsernames.length} public accounts...`);
 
     const allPosts: RawInstagramPost[] = [];
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'instaloader_fetch.py');
     const startTimeMs = Date.now();
-    const MAX_SCAN_DURATION_MS = (parseInt(process.env.MAX_SCAN_DURATION_MINUTES || '10', 10)) * 60 * 1000;
+    const MAX_SCAN_DURATION_MINUTES = parseInt(process.env.MAX_SCAN_DURATION_MINUTES || '10', 10);
+    const MAX_SCAN_DURATION_MS = MAX_SCAN_DURATION_MINUTES * 60 * 1000;
+    const deadline = startTimeMs + MAX_SCAN_DURATION_MS;
+
+    const ACCOUNT_TIMEOUT_MS = parseInt(process.env.INSTAGRAM_ACCOUNT_TIMEOUT_MS || '25000', 10);
     const ACCOUNT_DELAY_MS = parseInt(process.env.INSTAGRAM_ACCOUNT_DELAY_MS || '2000', 10);
 
     let consecutiveRateLimits = 0;
 
     for (let i = 0; i < cleanUsernames.length; i++) {
       const username = cleanUsernames[i];
-      const elapsed = Date.now() - startTimeMs;
+      const nowMs = Date.now();
 
-      if (elapsed >= MAX_SCAN_DURATION_MS) {
-        logger.warn(`[INSTALOADER ADAPTER] Maximum scan safety limit reached (${(elapsed / 1000 / 60).toFixed(1)} mins). Halting batch fetch safely.`);
-        SchedulerService.statusMessage = `Scan reached safety limit of ${Math.round(elapsed / 60000)} minutes`;
+      // 1. HARD GLOBAL DEADLINE CHECK (10 Minutes)
+      if (nowMs >= deadline) {
+        logger.warn(`[INSTALOADER ADAPTER] Maximum scan duration of ${MAX_SCAN_DURATION_MINUTES} minutes reached. Stopping further account fetches.`);
+        SchedulerService.statusMessage = `Maximum scan duration (${MAX_SCAN_DURATION_MINUTES}:00) reached. Finalizing results...`;
         break;
       }
 
@@ -56,28 +63,60 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
       SchedulerService.sourcesSucceeded = this.sourcesSucceeded;
       SchedulerService.sourcesFailed = this.sourcesFailed;
       SchedulerService.sourcesRateLimited = this.sourcesRateLimited;
+      SchedulerService.sourcesTimedOut = this.sourcesTimedOut;
 
-      logger.info(`[SCAN] [${i + 1}/${cleanUsernames.length}] Fetching @${username}...`);
+      const elapsedSec = Math.floor((nowMs - startTimeMs) / 1000);
+      const minsStr = Math.floor(elapsedSec / 60).toString().padStart(2, '0');
+      const secsStr = (elapsedSec % 60).toString().padStart(2, '0');
+      const timeStr = `${minsStr}:${secsStr}`;
+
+      logger.info(`[SCAN] [${i + 1}/${cleanUsernames.length}] Fetching @${username} (Elapsed: ${timeStr})...`);
+      SchedulerService.statusMessage = `Scanning ${i + 1}/${cleanUsernames.length}: @${username} (Elapsed: ${timeStr})`;
 
       let fetchResult: any = null;
       const backoffDelays = [30000, 60000, 120000]; // 30s, 60s, 120s backoff
 
       for (let attempt = 1; attempt <= 4; attempt++) {
+        // Re-check deadline before each retry attempt
+        const checkNow = Date.now();
+        if (checkNow >= deadline) {
+          logger.warn(`[GLOBAL DEADLINE] Reached deadline during retry evaluation for @${username}. Aborting retries.`);
+          break;
+        }
+
+        const remainingMs = Math.max(1000, deadline - checkNow);
+        const perAccountTimeout = Math.min(ACCOUNT_TIMEOUT_MS, remainingMs);
+
         try {
-          fetchResult = await this.runPythonScript(scriptPath, username);
+          fetchResult = await this.runPythonScript(scriptPath, username, perAccountTimeout);
 
           if (fetchResult.rateLimited) {
             if (attempt <= 3) {
-              const waitMs = backoffDelays[attempt - 1];
-              logger.warn(`[429 RETRY] @${username} encountered HTTP 429 Rate Limit (Attempt ${attempt}/3). Waiting ${waitMs / 1000}s before backoff retry...`);
-              SchedulerService.statusMessage = `Rate limit cooldown for @${username}: waiting ${waitMs / 1000}s...`;
-              await new Promise(r => setTimeout(r, waitMs));
+              const desiredWait = backoffDelays[attempt - 1];
+              const waitRemaining = deadline - Date.now();
+              if (waitRemaining <= 1000) {
+                logger.warn(`[429 RETRY ABORT] No time remaining before 10-minute deadline to sleep ${desiredWait / 1000}s.`);
+                break;
+              }
+
+              const actualWaitMs = Math.min(desiredWait, waitRemaining);
+              const waitSec = Math.round(actualWaitMs / 1000);
+
+              logger.warn(`[429 RETRY] @${username} encountered HTTP 429 Rate Limit (Attempt ${attempt}/3). Waiting ${waitSec}s...`);
+              SchedulerService.statusMessage = `RATE LIMIT COOLDOWN: @${username} (Retry ${attempt}/3) - Waiting ${waitSec}s...`;
+              
+              await new Promise(r => setTimeout(r, actualWaitMs));
+
+              if (Date.now() >= deadline) {
+                logger.warn(`[429 RETRY ABORT] Deadline reached while waiting for @${username} backoff.`);
+                break;
+              }
               continue;
             } else {
               logger.warn(`[RATE LIMITED] @${username} remains rate-limited after 3 retry attempts.`);
             }
           } else {
-            // Success or non-429 output
+            // Success, timedOut, or error
             break;
           }
         } catch (err: any) {
@@ -92,7 +131,6 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
       if (fetchResult && fetchResult.success && Array.isArray(fetchResult.posts)) {
         this.sourcesSucceeded++;
         consecutiveRateLimits = 0;
-        SchedulerService.statusMessage = `Scanning @${username}...`;
 
         const pCount = fetchResult.postsChecked || 0;
         const rCount = fetchResult.reelsChecked || 0;
@@ -115,15 +153,24 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
           });
         }
         logger.info(`[INSTAGRAM] @${username}\n[POSTS] count=${pCount}\n[REELS] count=${rCount}\n[REELS ACCEPTED] count=${newReelCount}`);
+      } else if (fetchResult && fetchResult.timedOut) {
+        this.sourcesTimedOut++;
+        this.errorsCount++;
+        logger.warn(`[ACCOUNT TIMEOUT] @${username} timed out after ${ACCOUNT_TIMEOUT_MS}ms.`);
       } else if (fetchResult && fetchResult.rateLimited) {
         this.sourcesRateLimited++;
         consecutiveRateLimits++;
         logger.warn(`[RATE LIMITED RECORDED] @${username} marked as RATE_LIMITED.`);
 
         if (consecutiveRateLimits >= 3) {
-          logger.warn(`[GLOBAL RATE LIMIT DETECTED] 3 consecutive accounts rate limited. Pausing scanner for 90 seconds global cooldown...`);
-          SchedulerService.statusMessage = `GLOBAL RATE LIMIT DETECTED: Cooldown active (90s)...`;
-          await new Promise(r => setTimeout(r, 90000));
+          const globalWaitRemaining = deadline - Date.now();
+          if (globalWaitRemaining > 1000) {
+            const actualGlobalWait = Math.min(90000, globalWaitRemaining);
+            const waitSec = Math.round(actualGlobalWait / 1000);
+            logger.warn(`[GLOBAL RATE LIMIT DETECTED] 3 consecutive accounts rate limited. Pausing scanner for ${waitSec}s global cooldown...`);
+            SchedulerService.statusMessage = `GLOBAL RATE LIMIT COOLDOWN: Waiting ${waitSec}s...`;
+            await new Promise(r => setTimeout(r, actualGlobalWait));
+          }
           consecutiveRateLimits = 0;
         }
       } else {
@@ -137,40 +184,71 @@ export class InstaloaderInstagramAdapter implements InstagramAdapter {
       SchedulerService.sourcesSucceeded = this.sourcesSucceeded;
       SchedulerService.sourcesFailed = this.sourcesFailed;
       SchedulerService.sourcesRateLimited = this.sourcesRateLimited;
+      SchedulerService.sourcesTimedOut = this.sourcesTimedOut;
 
-      // Rate-limit safe inter-account delay
-      await new Promise(r => setTimeout(r, ACCOUNT_DELAY_MS));
+      // Rate-limit safe inter-account delay (checking deadline first)
+      const remainingDelay = deadline - Date.now();
+      if (remainingDelay <= 1000) break;
+      const actualDelay = Math.min(ACCOUNT_DELAY_MS, remainingDelay);
+      await new Promise(r => setTimeout(r, actualDelay));
     }
 
     if (this.sourcesRateLimited > 0 && this.sourcesSucceeded === 0) {
       this.rateLimited = true;
     }
 
-    logger.info(`[INSTALOADER ADAPTER] Batch complete. Checked ${this.sourcesChecked}/${cleanUsernames.length} accounts (Succeeded: ${this.sourcesSucceeded}, Failed: ${this.sourcesFailed}, Rate Limited: ${this.sourcesRateLimited}). Fetched ${allPosts.length} total posts.`);
+    logger.info(`[INSTALOADER ADAPTER] Batch complete. Checked ${this.sourcesChecked}/${cleanUsernames.length} accounts (Succeeded: ${this.sourcesSucceeded}, Failed: ${this.sourcesFailed}, Rate Limited: ${this.sourcesRateLimited}, Timed Out: ${this.sourcesTimedOut}). Fetched ${allPosts.length} total posts.`);
     return allPosts;
   }
 
-  private runPythonScript(scriptPath: string, username: string): Promise<any> {
+  private runPythonScript(scriptPath: string, username: string, timeoutMs: number = 25000): Promise<any> {
     return new Promise((resolve) => {
       const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-      
-      execFile(pythonCmd, [scriptPath, username], { timeout: 35000 }, (error, stdout, stderr) => {
-        const combined = (stdout || '') + (stderr || '') + (error?.message || '');
-        if (combined.includes('429') || combined.includes('Too Many Requests') || combined.includes('rate limit')) {
-          return resolve({ success: false, rateLimited: true, error: 'HTTP 429 Too Many Requests' });
-        }
+      let isSettled = false;
 
-        if (error || !stdout) {
-          return resolve({ success: false, error: error?.message || 'Python execution failed' });
-        }
+      const child = execFile(
+        pythonCmd, 
+        [scriptPath, username], 
+        { timeout: timeoutMs, killSignal: 'SIGKILL' }, 
+        (error, stdout, stderr) => {
+          if (isSettled) return;
+          isSettled = true;
 
-        try {
-          const parsed = JSON.parse(stdout.trim());
-          resolve(parsed);
-        } catch (jsonErr) {
-          resolve({ success: false, error: 'Invalid JSON output from script' });
+          const combined = (stdout || '') + (stderr || '') + (error?.message || '');
+
+          if (error && (error.killed || error.signal === 'SIGKILL' || error.signal === 'SIGTERM' || combined.includes('ETIMEDOUT') || combined.includes('timed out'))) {
+            return resolve({ success: false, timedOut: true, error: `Account timeout after ${timeoutMs}ms` });
+          }
+
+          if (combined.includes('429') || combined.includes('Too Many Requests') || combined.includes('rate limit')) {
+            return resolve({ success: false, rateLimited: true, error: 'HTTP 429 Too Many Requests' });
+          }
+
+          if (error || !stdout) {
+            return resolve({ success: false, error: error?.message || 'Python execution failed' });
+          }
+
+          try {
+            const parsed = JSON.parse(stdout.trim());
+            resolve(parsed);
+          } catch (jsonErr) {
+            resolve({ success: false, error: 'Invalid JSON output from script' });
+          }
         }
-      });
+      );
+
+      // Fallback kill timer to ensure child process is forcefully killed if hanging
+      const fallbackKill = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          try {
+            child.kill('SIGKILL');
+          } catch (_) {}
+          resolve({ success: false, timedOut: true, error: `Forcefully killed after ${timeoutMs + 2000}ms` });
+        }
+      }, timeoutMs + 2000);
+
+      child.on('exit', () => clearTimeout(fallbackKill));
     });
   }
 }

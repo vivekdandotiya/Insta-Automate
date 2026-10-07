@@ -266,7 +266,7 @@ export default function App() {
              scanResult.status === 'partial' ? <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" /> :
              <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />}
             <span className="truncate">
-              <strong>SCAN {scanResult.status ? scanResult.status.toUpperCase() : 'COMPLETE'}:</strong> {scanResult.sourcesSucceeded ?? scanResult.sourcesChecked}/{scanResult.sourcesConfigured ?? 73} sources checked • {scanResult.newJobs ?? scanResult.jobsFound ?? 0} new jobs found • {scanResult.duplicates ?? 0} duplicates • {scanResult.expired ?? scanResult.ignoredOld ?? 0} older than 24h {scanResult.message ? `(${scanResult.message})` : ''}
+              <strong>SCAN {scanResult.status ? scanResult.status.toUpperCase() : 'COMPLETE'}:</strong> {scanResult.sourcesSucceeded ?? scanResult.sourcesChecked}/{scanResult.sourcesConfigured ?? 73} sources checked • {scanResult.newJobs ?? scanResult.jobsFound ?? 0} new jobs found • {scanResult.duplicates ?? 0} duplicates {scanResult.sourcesRateLimited ? `• ${scanResult.sourcesRateLimited} rate-limited` : ''} {scanResult.sourcesTimedOut ? `• ${scanResult.sourcesTimedOut} timed out` : ''} {scanResult.message ? `(${scanResult.message})` : ''}
             </span>
           </div>
           <button onClick={() => setScanResult(null)} className="hover:text-white font-bold text-xs p-1">✕</button>

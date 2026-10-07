@@ -15,6 +15,7 @@ export interface ScanCycleResult {
   sourcesSucceeded: number;
   sourcesFailed: number;
   sourcesRateLimited?: number;
+  sourcesTimedOut?: number;
   postsChecked: number;
   reelsChecked: number;
   postsFetched: number;
@@ -48,6 +49,7 @@ export class SchedulerService {
   public static sourcesSucceeded: number = 0;
   public static sourcesFailed: number = 0;
   public static sourcesRateLimited: number = 0;
+  public static sourcesTimedOut: number = 0;
   public static totalPostsChecked: number = 0;
   public static totalReelsChecked: number = 0;
   public static totalJobsFound: number = 0;
@@ -71,6 +73,7 @@ export class SchedulerService {
       sourcesSucceeded: SchedulerService.sourcesSucceeded,
       sourcesFailed: SchedulerService.sourcesFailed,
       sourcesRateLimited: SchedulerService.sourcesRateLimited,
+      sourcesTimedOut: SchedulerService.sourcesTimedOut,
       postsChecked: SchedulerService.totalPostsChecked,
       reelsChecked: SchedulerService.totalReelsChecked,
       jobsFound: SchedulerService.totalJobsFound,
@@ -86,6 +89,7 @@ export class SchedulerService {
         sourcesSucceeded: SchedulerService.sourcesSucceeded,
         sourcesFailed: SchedulerService.sourcesFailed,
         sourcesRateLimited: SchedulerService.sourcesRateLimited,
+        sourcesTimedOut: SchedulerService.sourcesTimedOut,
         postsChecked: SchedulerService.totalPostsChecked,
         reelsChecked: SchedulerService.totalReelsChecked,
         jobsFound: SchedulerService.totalJobsFound,
@@ -111,6 +115,7 @@ export class SchedulerService {
         sourcesSucceeded: 0,
         sourcesFailed: 0,
         sourcesRateLimited: 0,
+        sourcesTimedOut: 0,
         postsChecked: 0,
         reelsChecked: 0,
         postsFetched: 0,
@@ -140,6 +145,7 @@ export class SchedulerService {
     SchedulerService.sourcesSucceeded = 0;
     SchedulerService.sourcesFailed = 0;
     SchedulerService.sourcesRateLimited = 0;
+    SchedulerService.sourcesTimedOut = 0;
     SchedulerService.totalPostsChecked = 0;
     SchedulerService.totalReelsChecked = 0;
     SchedulerService.totalJobsFound = 0;
@@ -169,13 +175,13 @@ export class SchedulerService {
 
       if (agentState.status === 'STOPPED') {
         logger.info(`[SCHEDULER] Agent status is STOPPED. Execution skipped.`);
-        SchedulerService.isRunning = false;
         const res: ScanCycleResult = {
           sourcesConfigured: 73,
           sourcesChecked: 0,
           sourcesSucceeded: 0,
           sourcesFailed: 0,
           sourcesRateLimited: 0,
+          sourcesTimedOut: 0,
           postsChecked: 0,
           reelsChecked: 0,
           postsFetched: 0,
@@ -392,6 +398,7 @@ export class SchedulerService {
       const sourcesSucceeded = (adapter as any).sourcesSucceeded ?? (sourcesChecked > 0 ? sourcesChecked : 0);
       const sourcesFailed = (adapter as any).sourcesFailed ?? 0;
       const sourcesRateLimited = (adapter as any).sourcesRateLimited ?? 0;
+      const sourcesTimedOut = (adapter as any).sourcesTimedOut ?? 0;
       const rateLimited = (adapter as any).rateLimited || false;
       const adapterErrors = (adapter as any).errorsCount || 0;
 
@@ -404,9 +411,9 @@ export class SchedulerService {
         statusMessage = (sourcesRateLimited > 0 || rateLimited) 
           ? `Scan failed: 0/${sourcesConfigured} sources checked (Instagram rate limited)`
           : `Scan failed: 0/${sourcesConfigured} sources checked (Data connection failed)`;
-      } else if (sourcesChecked < sourcesConfigured || sourcesRateLimited > 0 || sourcesFailed > 0) {
+      } else if (sourcesChecked < sourcesConfigured || sourcesRateLimited > 0 || sourcesFailed > 0 || sourcesTimedOut > 0) {
         finalStatus = 'partial';
-        statusMessage = `Scan partial: ${sourcesSucceeded}/${sourcesConfigured} sources checked (${sourcesRateLimited} rate-limited, ${sourcesFailed} failed)`;
+        statusMessage = `Scan partial: ${sourcesSucceeded}/${sourcesConfigured} sources checked (${sourcesRateLimited} rate-limited, ${sourcesTimedOut} timed out, ${sourcesFailed} failed)`;
       }
 
       SchedulerService.statusMessage = statusMessage;
@@ -417,6 +424,7 @@ Sources configured: ${sourcesConfigured}
 Sources checked: ${sourcesChecked}
 Sources succeeded: ${sourcesSucceeded}
 Sources rate limited: ${sourcesRateLimited}
+Sources timed out: ${sourcesTimedOut}
 Sources failed: ${sourcesFailed}
 Posts checked: ${SchedulerService.totalPostsChecked}
 Reels checked: ${SchedulerService.totalReelsChecked}
@@ -440,6 +448,7 @@ Status: ${finalStatus} (${statusMessage})
         sourcesSucceeded,
         sourcesFailed,
         sourcesRateLimited,
+        sourcesTimedOut,
         postsChecked: SchedulerService.totalPostsChecked,
         reelsChecked: SchedulerService.totalReelsChecked,
         postsFetched: scanned,
@@ -474,6 +483,7 @@ Status: ${finalStatus} (${statusMessage})
         sourcesSucceeded: 0,
         sourcesFailed: 73,
         sourcesRateLimited: 0,
+        sourcesTimedOut: 0,
         postsChecked: 0,
         reelsChecked: 0,
         postsFetched: 0,

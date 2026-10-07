@@ -2,7 +2,11 @@ import sys
 import json
 import os
 import time
+import socket
 from datetime import datetime, timezone, timedelta
+
+# Set 15-second socket timeout globally so instaloader requests never hang indefinitely on socket read
+socket.setdefaulttimeout(15)
 
 def fetch_account(username):
     POST_LIMIT = int(os.environ.get('INSTAGRAM_POST_LIMIT', '5'))
@@ -58,6 +62,8 @@ def fetch_account(username):
             err_str = str(e).lower()
             if "429" in err_str or "too many requests" in err_str:
                 return {"success": False, "rateLimited": True, "error": "HTTP 429 Too Many Requests"}
+            elif "timed out" in err_str or "timeout" in err_str:
+                return {"success": False, "timedOut": True, "error": f"Socket timeout while reading posts for @{username}"}
 
         # 2. Fetch recent Reels tab explicitly if available
         try:
@@ -87,6 +93,8 @@ def fetch_account(username):
             err_str = str(e).lower()
             if "429" in err_str or "too many requests" in err_str:
                 return {"success": False, "rateLimited": True, "error": "HTTP 429 Too Many Requests"}
+            elif "timed out" in err_str or "timeout" in err_str:
+                return {"success": False, "timedOut": True, "error": f"Socket timeout while reading reels for @{username}"}
 
         return {
             "success": True,
@@ -99,6 +107,8 @@ def fetch_account(username):
         err_str = str(e).lower()
         if "429" in err_str or "too many requests" in err_str or "rate limit" in err_str:
             return {"success": False, "rateLimited": True, "error": "HTTP 429 Too Many Requests"}
+        elif "timed out" in err_str or "timeout" in err_str:
+            return {"success": False, "timedOut": True, "error": f"Socket timeout for @{username}"}
         return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
