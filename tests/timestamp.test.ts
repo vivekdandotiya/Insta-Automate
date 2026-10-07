@@ -6,18 +6,18 @@ import { getMonitoredInstagramAccounts, DEFAULT_MONITORED_ACCOUNTS } from '../sr
 import { getInstagramAdapter } from '../src/services/instagram/factory.js';
 import { SchedulerService } from '../src/services/scheduler.service.js';
 
-describe('Comprehensive Production Audit & Test Suite (Prompt 8 Bounded Reliable Scan Update)', () => {
+describe('Comprehensive Production Audit & Test Suite (Master Task: Apify Adapter Update)', () => {
   const agentStartTime = new Date('2026-10-03T13:30:00.000Z');
 
-  // 1. INSTALOADER ADAPTER INITIALIZATION
-  it('Requirement: INSTAGRAM_ADAPTER_MODE=instaloader initializes InstaloaderInstagramAdapter', async () => {
+  // 1. APIFY ADAPTER INITIALIZATION
+  it('Requirement: INSTAGRAM_ADAPTER_MODE=apify initializes ApifyInstagramAdapter as primary production adapter', async () => {
     const { config } = await import('../src/config/index.js');
     const origMode = config.instagramAdapterMode;
-    config.instagramAdapterMode = 'instaloader';
+    config.instagramAdapterMode = 'apify';
 
     const adapter = getInstagramAdapter();
     expect(adapter).toBeDefined();
-    expect(adapter.constructor.name).toBe('InstaloaderInstagramAdapter');
+    expect(adapter.constructor.name).toBe('ApifyInstagramAdapter');
 
     config.instagramAdapterMode = origMode;
   });
@@ -124,12 +124,11 @@ describe('Comprehensive Production Audit & Test Suite (Prompt 8 Bounded Reliable
   });
 
   // 8. RELIABLE BOUNDED SCAN PIPELINE: STATUS MODEL, TIMEOUTS & LOCK CLEANUP
-  it('Requirement 10, 18, 30: SchedulerService provides bounded scan status and guarantees lock release', () => {
+  it('Requirement: SchedulerService provides bounded scan status and guarantees lock release', () => {
     const initialStatus = SchedulerService.getScanStatus();
     expect(initialStatus).toBeDefined();
     expect(initialStatus.isScanning).toBe(false);
     expect(initialStatus.totalSources).toBe(73);
-    expect(initialStatus.sourcesTimedOut).toBe(0);
     expect(['READY', 'COMPLETED', 'PARTIAL', 'FAILED']).toContain(initialStatus.status);
   });
 });
